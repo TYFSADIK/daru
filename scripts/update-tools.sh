@@ -55,6 +55,18 @@ if command -v pipx >/dev/null 2>&1; then
   pipx upgrade-all 2>/dev/null || true
 fi
 
+# --- git-installed tools (recon-ng, spiderfoot) ------------------------------
+if command -v git >/dev/null 2>&1 && [ -d "$HOME/.daru/tools" ]; then
+  for d in "$HOME/.daru/tools"/*; do
+    [ -d "$d/.git" ] || continue
+    say "Updating $(basename "$d")"
+    ( cd "$d" && git pull --ff-only 2>/dev/null || true )
+    if [ -x "$d/.venv/bin/pip" ] && [ -f "$d/requirements.txt" ]; then
+      "$d/.venv/bin/pip" install -q -r "$d/requirements.txt" 2>/dev/null || true
+    fi
+  done
+fi
+
 # --- nuclei templates (the detection content, not just the binary) -----------
 NUC=""
 command -v nuclei >/dev/null 2>&1 && NUC=$(command -v nuclei)

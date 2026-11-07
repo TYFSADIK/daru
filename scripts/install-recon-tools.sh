@@ -97,7 +97,8 @@ if [ -n "$PIPX" ]; then
     "sslyze:sslyze" \
     "wapiti:wapiti3" \
     "dnstwist:dnstwist" \
-    "smbmap:smbmap"
+    "smbmap:smbmap" \
+    "gvm-cli:gvm-tools"
   do
     name=${spec%%:*}; pkg=${spec#*:}
     if command -v "$name" >/dev/null 2>&1; then say "have $name"; continue; fi
@@ -110,8 +111,6 @@ if [ -n "$PIPX" ]; then
       warn "skip $pkg (often fixed by: sudo apt-get install -y python3-venv)"
     fi
   done
-  # recon-ng is not reliably on PyPI; prefer the apt package, else point to git.
-  command -v recon-ng >/dev/null 2>&1 || warn "recon-ng: install with 'sudo apt-get install -y recon-ng' or from https://github.com/lanmaster53/recon-ng"
 else
   warn "pipx unavailable. Install it: sudo apt-get install -y pipx python3-venv"
   warn "Then re-run this script. Skipping theHarvester/sslyze/wapiti/dnstwist/smbmap."
@@ -144,6 +143,45 @@ else
   say "Go not found; skipping nuclei/httpx/subfinder/dnsx (install Go to get them)."
 fi
 
+# Tools not in any package repo: install from git into their own venv and drop
+# a launcher in ~/.local/bin under the name Daru expects.
+TOOLS_DIR="$HOME/.daru/tools"
+BIN_USER="$HOME/.local/bin"
+git_tool() {
+  gname="$1"; repo="$2"; launcher="$3"; wname="$4"
+  if command -v "$wname" >/dev/null 2>&1; then say "have $wname"; return; fi
+  command -v git >/dev/null 2>&1 || { warn "git missing; cannot install $wname"; return; }
+  command -v python3 >/dev/null 2>&1 || { warn "python3 missing; cannot install $wname"; return; }
+  mkdir -p "$TOOLS_DIR" "$BIN_USER"
+  dir="$TOOLS_DIR/$gname"
+  say "Installing $wname from $repo"
+  if [ -d "$dir/.git" ]; then ( cd "$dir" && git pull --ff-only 2>/dev/null || true )
+  else git clone --depth 1 "$repo" "$dir" 2>/dev/null || { warn "clone $gname failed"; return; }
+  fi
+  py="python3"
+  if [ -f "$dir/requirements.txt" ]; then
+    if python3 -m venv "$dir/.venv" 2>/dev/null; then
+      "$dir/.venv/bin/pip" install -q --upgrade pip 2>/dev/null || true
+      "$dir/.venv/bin/pip" install -q -r "$dir/requirements.txt" 2>/dev/null || warn "some deps for $gname failed"
+      py="$dir/.venv/bin/python"
+    else
+      warn "venv for $gname failed (need python3-venv); trying system python"
+    fi
+  fi
+  cat > "$BIN_USER/$wname" <<WRAP
+#!/bin/sh
+exec "$py" "$dir/$launcher" "\$@"
+WRAP
+  chmod +x "$BIN_USER/$wname"
+  say "installed $wname -> $dir/$launcher"
+}
+
+# recon-ng and spiderfoot are not reliably packaged; install them from source.
+command -v recon-ng >/dev/null 2>&1 || \
+  git_tool recon-ng https://github.com/lanmaster53/recon-ng.git recon-ng recon-ng
+command -v sfcli >/dev/null 2>&1 || \
+  git_tool spiderfoot https://github.com/smicallef/spiderfoot.git sfcli.py sfcli
+
 # Offer the capability grant so raw-socket tools work without running as root.
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "$(uname -s)" = "Linux" ] && [ -f "$SCRIPT_DIR/grant-capabilities.sh" ]; then
@@ -152,5 +190,6 @@ if [ "$(uname -s)" = "Linux" ] && [ -f "$SCRIPT_DIR/grant-capabilities.sh" ]; th
 fi
 
 say "Done. Daru searches PATH plus ~/go/bin and ~/.local/bin, so these appear"
-say "in the Recon tab automatically. A few tools need manual setup if you want"
-say "them: spiderfoot (binary sfcli), openvas/gvm (gvm-cli), unicornscan."
+say "in the Recon tab automatically."
+say "Note: openvas/gvm needs its services and feed sync set up separately (the"
+say "gvm-cli client is installed); unicornscan only installs where apt has it."
