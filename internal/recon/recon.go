@@ -10,6 +10,7 @@
 package recon
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -80,7 +81,13 @@ type Connector struct {
 	build func(c *Connector, r Request) ([]string, error)
 	// parse turns stdout into findings. A nil parse uses genericParse.
 	parse func(out []byte, r Request) []Finding
+	// native, when set, collects findings in-process without an external
+	// binary (for passive OSINT such as crt.sh, DNS, and TLS inspection).
+	native func(ctx context.Context, r Request) ([]Finding, error)
 }
+
+// IsNative reports whether the connector runs in-process.
+func (c *Connector) IsNative() bool { return c.native != nil }
 
 // Profile is a named preset for a connector.
 type Profile struct {
@@ -88,8 +95,12 @@ type Profile struct {
 	Desc string `json:"desc"`
 }
 
-// Available reports whether the connector's binary is installed.
+// Available reports whether the connector can run: native connectors always
+// can; external ones need their binary installed.
 func (c *Connector) Available() bool {
+	if c.native != nil {
+		return true
+	}
 	_, err := exec.LookPath(c.Binary)
 	return err == nil
 }

@@ -44,7 +44,7 @@ func (s *Server) handleReconScan(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-s.reconSem }()
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
-		res := recon.Run(ctx, connector, args, req, 20*time.Minute)
+		res := recon.Execute(ctx, connector, args, req, 20*time.Minute)
 		findings := make([]store.ScanFinding, 0, len(res.Findings))
 		for _, f := range res.Findings {
 			findings = append(findings, store.ScanFinding{

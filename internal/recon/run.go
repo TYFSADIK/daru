@@ -35,6 +35,21 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 	if !c.Available() {
 		return nil, nil, "", fmt.Errorf("%s is not installed (missing binary %q)", c.Name, c.Binary)
 	}
+	if c.IsNative() {
+		// Native connectors still pass the gate and scope validation below,
+		// but build no command-line arguments.
+		if !r.Confirmed {
+			return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
+		}
+		if len(r.AuthorizationRef) < 3 {
+			return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
+		}
+		target, err := ValidateTarget(c, r)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		return c, nil, target, nil
+	}
 	if !r.Confirmed {
 		return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
 	}
@@ -51,6 +66,34 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 		return nil, nil, "", err
 	}
 	return c, args, target, nil
+}
+
+// Execute runs a prepared scan, dispatching to the native collector or the
+// external binary as appropriate.
+func Execute(ctx context.Context, c *Connector, args []string, r Request, timeout time.Duration) *Result {
+	if c.IsNative() {
+		return runNative(ctx, c, r, timeout)
+	}
+	return Run(ctx, c, args, r, timeout)
+}
+
+func runNative(ctx context.Context, c *Connector, r Request, timeout time.Duration) *Result {
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	res := &Result{
+		Connector: c.Name, Target: r.Target, Profile: profileOr(c, r.Profile),
+		Command: c.Name + " (native) " + r.Target, Started: time.Now().UTC(),
+	}
+	findings, err := c.native(runCtx, r)
+	res.Finished = time.Now().UTC()
+	res.Findings = findings
+	if err != nil {
+		res.Err = err.Error()
+	}
+	return res
 }
 
 // Run executes a prepared scan. The caller passes the connector and args from
