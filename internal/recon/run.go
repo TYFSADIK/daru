@@ -34,10 +34,24 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 	if !ok {
 		return nil, nil, "", fmt.Errorf("unknown connector %q", r.Connector)
 	}
-	// Authorization gate, before anything about tooling. Scanning your own
+	// Validate and normalize the target first, so a blank, URL, or malformed
+	// target gives a clear message instead of a generic gate error. Local
+	// tools (netdiscover) may run with an empty target.
+	emptyLocal := c.AllowEmptyTarget && strings.TrimSpace(r.Target) == ""
+	target := ""
+	if !emptyLocal {
+		var err error
+		target, err = ValidateTarget(c, r)
+		if err != nil {
+			return nil, nil, "", err
+		}
+	}
+	r.Target = target
+
+	// Authorization gate, judged from the validated target. Scanning your own
 	// local network, loopback, or private ranges is friction-free. External
-	// targets (public IPs, domains, or allow_external) still require an
-	// explicit confirmation and an authorization reference.
+	// targets (public IPs, domains, or allow_external) require an explicit
+	// confirmation and an authorization reference.
 	if !ScanIsLocal(c, r) {
 		if !r.Confirmed {
 			return nil, nil, "", fmt.Errorf("external target: confirm you are authorized to test it")
@@ -50,22 +64,8 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 		return nil, nil, "", fmt.Errorf("%s is not installed (missing binary %q)", c.Name, c.Binary)
 	}
 	if c.IsNative() {
-		// Native connectors build no command-line arguments, but still pass
-		// scope validation below.
-		if c.AllowEmptyTarget && strings.TrimSpace(r.Target) == "" {
-			return c, nil, "", nil
-		}
-		target, err := ValidateTarget(c, r)
-		if err != nil {
-			return nil, nil, "", err
-		}
 		return c, nil, target, nil
 	}
-	target, err := ValidateTarget(c, r)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	r.Target = target
 	args, err := c.runArgs(r)
 	if err != nil {
 		return nil, nil, "", err

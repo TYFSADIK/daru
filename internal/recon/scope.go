@@ -100,9 +100,23 @@ func hostnameIsPrivate(host string) bool {
 }
 
 func guardHostOrCIDR(t string, allowCIDR, allowExternal bool) (string, error) {
+	kind := "a host or IP (e.g. 192.168.1.10)"
+	if allowCIDR {
+		kind = "a host, IP, or CIDR (e.g. 192.168.1.10 or 192.168.1.0/24)"
+	}
+	if t == "" {
+		return "", fmt.Errorf("this tool needs a target: enter %s", kind)
+	}
+	if strings.Contains(t, "://") {
+		return "", fmt.Errorf("enter %s, not a URL; remove the http:// part", kind)
+	}
+	// Accept host:port by keeping the host; the port belongs in the Ports field.
+	if h, _, err := net.SplitHostPort(t); err == nil && h != "" {
+		t = h
+	}
 	if strings.Contains(t, "/") {
 		if !allowCIDR {
-			return "", fmt.Errorf("this connector does not accept a CIDR range")
+			return "", fmt.Errorf("this connector does not accept a CIDR range; enter a single host or IP")
 		}
 		_, ipnet, err := net.ParseCIDR(t)
 		if err != nil {
@@ -124,7 +138,7 @@ func guardHostOrCIDR(t string, allowCIDR, allowExternal bool) (string, error) {
 	}
 	// Hostname.
 	if !hostName(t) {
-		return "", fmt.Errorf("invalid host")
+		return "", fmt.Errorf("invalid target %q: enter %s", t, kind)
 	}
 	return guardResolvedHost(t, allowExternal)
 }
