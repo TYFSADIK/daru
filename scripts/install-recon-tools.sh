@@ -39,7 +39,7 @@ fi
 # Package sets by manager. Names differ a little per platform; missing ones
 # are skipped rather than failing the whole run. These are discovery,
 # vulnerability, web, DNS/OSINT, and traffic-analysis tools only.
-APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze testssl.sh tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti smbmap dnstwist recon-ng unicornscan nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny pipx python3-pip"
+APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze testssl.sh tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti smbmap dnstwist recon-ng unicornscan nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny pipx python3-pip python3-venv python3-full"
 BREW="nmap masscan zmap nikto whatweb wafw00f amass sslscan sslyze wireshark fping hping theharvester nuclei httpx subfinder dnsx gobuster ffuf sqlmap hydra arp-scan whois ncat socat"
 PKG="nmap masscan nikto tshark tcpdump fping hydra sqlmap gobuster whois ncat socat net-tools"
 DNF="nmap masscan nikto whatweb tcpdump wireshark-cli fping arp-scan theHarvester hydra sqlmap gobuster whois nmap-ncat socat"
@@ -76,30 +76,45 @@ fi
 
 # Python-based scanners install cleanly with pipx (each in its own venv).
 # Binary names must match what Daru looks for: theHarvester, sslyze, wapiti,
-# dnstwist, smbmap, recon-ng.
-if ! command -v pipx >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y pipx 2>/dev/null || true
-  elif command -v python3 >/dev/null 2>&1; then python3 -m pip install --user pipx 2>/dev/null || true
-  fi
+# dnstwist, smbmap. pipx needs python3-venv to build each tool's virtualenv;
+# without it every install fails, so install it first.
+if command -v apt-get >/dev/null 2>&1; then
+  sudo apt-get install -y pipx python3-venv python3-pip python3-full 2>/dev/null || true
+elif ! command -v pipx >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  python3 -m pip install --user pipx 2>/dev/null || \
+    python3 -m pip install --user --break-system-packages pipx 2>/dev/null || true
 fi
-if command -v pipx >/dev/null 2>&1; then
+# Resolve pipx even if it is only reachable as a module.
+PIPX=""
+if command -v pipx >/dev/null 2>&1; then PIPX="pipx"
+elif python3 -m pipx --version >/dev/null 2>&1; then PIPX="python3 -m pipx"
+fi
+if [ -n "$PIPX" ]; then
   say "Installing Python-based scanners with pipx"
-  pipx ensurepath >/dev/null 2>&1 || true
+  $PIPX ensurepath >/dev/null 2>&1 || true
   for spec in \
     "theHarvester:theHarvester" \
     "sslyze:sslyze" \
     "wapiti:wapiti3" \
     "dnstwist:dnstwist" \
-    "smbmap:smbmap" \
-    "recon-ng:recon-ng"
+    "smbmap:smbmap"
   do
     name=${spec%%:*}; pkg=${spec#*:}
     if command -v "$name" >/dev/null 2>&1; then say "have $name"; continue; fi
     say "pipx install $pkg"
-    pipx install "$pkg" 2>/dev/null || warn "skip $pkg (pipx install failed)"
+    # Capture output so we can show the real error and still see the exit code.
+    if out=$($PIPX install "$pkg" 2>&1); then
+      :
+    else
+      printf '%s\n' "$out" | tail -4
+      warn "skip $pkg (often fixed by: sudo apt-get install -y python3-venv)"
+    fi
   done
+  # recon-ng is not reliably on PyPI; prefer the apt package, else point to git.
+  command -v recon-ng >/dev/null 2>&1 || warn "recon-ng: install with 'sudo apt-get install -y recon-ng' or from https://github.com/lanmaster53/recon-ng"
 else
-  say "pipx not available; skipping theHarvester/sslyze/wapiti/dnstwist/smbmap."
+  warn "pipx unavailable. Install it: sudo apt-get install -y pipx python3-venv"
+  warn "Then re-run this script. Skipping theHarvester/sslyze/wapiti/dnstwist/smbmap."
 fi
 
 # Several popular scanners (ProjectDiscovery's nuclei, httpx, subfinder, dnsx,
