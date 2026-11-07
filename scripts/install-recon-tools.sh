@@ -24,17 +24,26 @@ wafw00f, sslyze, tshark, and similar).
 
 Use them only against systems you own or are explicitly authorized to test.
 EOF
-printf 'Continue? [y/N] '
-read -r ans
-case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 0 ;; esac
+# Non-interactive when called with -y/--yes or RECON_ASSUME_YES=1 (the main
+# installer's --with-tools uses this). Otherwise ask for consent.
+ASSUME_YES="${RECON_ASSUME_YES:-0}"
+case "${1:-}" in -y|--yes|yes) ASSUME_YES=1 ;; esac
+if [ "$ASSUME_YES" != 1 ]; then
+  printf 'Continue? [y/N] '
+  read -r ans
+  case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 0 ;; esac
+else
+  say "Consent given via flag; installing without prompting."
+fi
 
 # Package sets by manager. Names differ a little per platform; missing ones
-# are skipped rather than failing the whole run.
-APT="nmap masscan nikto whatweb wafw00f dnsutils dnsrecon amass sslyze tshark tcpdump fping hping3 theharvester"
-BREW="nmap masscan nikto whatweb wafw00f amass sslyze wireshark fping hping theharvester nuclei httpx subfinder dnsx"
-PKG="nmap masscan nikto tshark tcpdump fping"
-DNF="nmap nikto whatweb tcpdump wireshark-cli fping theHarvester"
-PACMAN="nmap nikto whatweb tcpdump wireshark-cli fping"
+# are skipped rather than failing the whole run. These are discovery,
+# vulnerability, web, DNS/OSINT, and traffic-analysis tools only.
+APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny"
+BREW="nmap masscan zmap nikto whatweb wafw00f amass sslscan sslyze wireshark fping hping theharvester nuclei httpx subfinder dnsx gobuster ffuf sqlmap hydra arp-scan whois ncat socat"
+PKG="nmap masscan nikto tshark tcpdump fping hydra sqlmap gobuster whois ncat socat net-tools"
+DNF="nmap masscan nikto whatweb tcpdump wireshark-cli fping arp-scan theHarvester hydra sqlmap gobuster whois nmap-ncat socat"
+PACMAN="nmap masscan nikto whatweb tcpdump wireshark-cli fping arp-scan hydra sqlmap gobuster whois gnu-netcat socat"
 
 install_each() {
   mgr="$1"; shift

@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./install.sh                 build and set up everything
+#   ./install.sh --with-tools    also install the security scanners (nmap, etc.)
 #   ./install.sh --no-clickhouse skip the ClickHouse step
 #   ./install.sh --help
 set -eu
@@ -14,6 +15,7 @@ set -eu
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PREFIX_BIN="${DARU_BIN_DIR:-}"
 WITH_CLICKHOUSE=1
+WITH_TOOLS=0
 GO_MIN_MAJOR=1
 GO_MIN_MINOR=23
 
@@ -24,6 +26,7 @@ die() { printf '\033[31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 for arg in "$@"; do
   case "$arg" in
     --no-clickhouse) WITH_CLICKHOUSE=0 ;;
+    --with-tools) WITH_TOOLS=1 ;;
     -h|--help)
       sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -192,6 +195,17 @@ EOF
 
   if [ "$WITH_CLICKHOUSE" = 1 ]; then setup_clickhouse; fi
 
+  if [ "$WITH_TOOLS" = 1 ]; then
+    say "Installing security scanners (--with-tools)"
+    RECON_ASSUME_YES=1 sh "$REPO_DIR/scripts/install-recon-tools.sh" || \
+      warn "Some scanners could not be installed; you can re-run scripts/install-recon-tools.sh later"
+  fi
+
+  tools_line="  Optional security scanners (nmap, masscan, etc.), opt-in:
+              sh \"$REPO_DIR/scripts/install-recon-tools.sh\"
+              or re-run this installer with --with-tools"
+  [ "$WITH_TOOLS" = 1 ] && tools_line="  Security scanners were installed (--with-tools). They appear in the Recon tab."
+
   cat <<EOF
 
 $(printf '\033[32mDaru is installed.\033[0m')
@@ -200,8 +214,7 @@ $(printf '\033[32mDaru is installed.\033[0m')
   Then open:  http://localhost:8088
   Sign in:    admin / $ADMIN_PASS
 
-  Optional security scanners (nmap, masscan, etc.), opt-in:
-              sh "$REPO_DIR/scripts/install-recon-tools.sh"
+$tools_line
 
 EOF
 }

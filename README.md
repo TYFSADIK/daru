@@ -72,6 +72,17 @@ cd daru
 ./install.sh
 ```
 
+To also install the security scanners (nmap, masscan, nuclei, and the rest) in
+the same step, add `--with-tools`:
+
+```bash
+./install.sh --with-tools
+```
+
+By default the installer sets up only Daru itself. The scanners are dual-use
+tools that need your package manager and root, so they are opt-in: either pass
+`--with-tools` above or run `./scripts/install-recon-tools.sh` later.
+
 **Windows (PowerShell):**
 
 ```powershell
