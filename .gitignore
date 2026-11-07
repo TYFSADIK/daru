@@ -1,0 +1,8 @@
+/basalt
+/basalt-*
+*.test
+/dist/
+/data/
+*.log
+.env
+.DS_Store
