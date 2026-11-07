@@ -7,13 +7,13 @@ import (
 )
 
 func TestAuthorizationGate(t *testing.T) {
-	// Missing confirmation is rejected before anything runs.
-	_, _, _, err := Prepare(Request{Connector: "nmap", Target: "127.0.0.1", AuthorizationRef: "ROE-1"})
+	// An EXTERNAL target without confirmation is rejected before anything runs.
+	_, _, _, err := Prepare(Request{Connector: "nmap", Target: "8.8.8.8", AllowExternal: true, AuthorizationRef: "ROE-1"})
 	if err == nil || !strings.Contains(err.Error(), "authorized") {
-		t.Errorf("unconfirmed scan should be rejected, got %v", err)
+		t.Errorf("unconfirmed external scan should be rejected, got %v", err)
 	}
-	// Missing authorization reference is rejected.
-	_, _, _, err = Prepare(Request{Connector: "nmap", Target: "127.0.0.1", Confirmed: true})
+	// External target with confirmation but no reference is rejected.
+	_, _, _, err = Prepare(Request{Connector: "nmap", Target: "8.8.8.8", AllowExternal: true, Confirmed: true})
 	if err == nil || !strings.Contains(err.Error(), "authorization reference") {
 		t.Errorf("missing auth ref should be rejected, got %v", err)
 	}
@@ -21,6 +21,23 @@ func TestAuthorizationGate(t *testing.T) {
 	_, _, _, err = Prepare(Request{Connector: "nope", Target: "x", Confirmed: true, AuthorizationRef: "ROE-1"})
 	if err == nil {
 		t.Error("unknown connector should fail")
+	}
+}
+
+func TestLocalScanSkipsGate(t *testing.T) {
+	// Scanning a private/loopback target or a blank local tool needs no
+	// confirmation or reference. The only error allowed here is the tool not
+	// being installed, never an authorization error.
+	cases := []Request{
+		{Connector: "nmap", Target: "127.0.0.1"},
+		{Connector: "nmap", Target: "192.168.1.10"},
+		{Connector: "netdiscover", Target: ""}, // blank: scans own network
+	}
+	for _, req := range cases {
+		_, _, _, err := Prepare(req)
+		if err != nil && (strings.Contains(err.Error(), "authorized") || strings.Contains(err.Error(), "authorization reference")) {
+			t.Errorf("local scan %+v should not hit the auth gate, got %v", req, err)
+		}
 	}
 }
 

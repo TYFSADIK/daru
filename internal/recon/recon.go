@@ -186,6 +186,7 @@ type Info struct {
 	Profiles   []Profile `json:"profiles"`
 	Available  bool      `json:"available"`
 	NeedsRoot  bool      `json:"needs_root"`
+	AllowEmpty bool      `json:"allow_empty"` // target may be left blank
 }
 
 // List returns connector info for the UI.
@@ -195,7 +196,7 @@ func List() []Info {
 		out = append(out, Info{
 			Name: c.Name, Binary: c.Binary, Category: string(c.Category),
 			TargetKind: string(c.TargetKind), Desc: c.Desc, Profiles: c.Profiles,
-			Available: c.Available(), NeedsRoot: c.NeedsRoot,
+			Available: c.Available(), NeedsRoot: c.NeedsRoot, AllowEmpty: c.AllowEmptyTarget,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

@@ -34,13 +34,17 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 	if !ok {
 		return nil, nil, "", fmt.Errorf("unknown connector %q", r.Connector)
 	}
-	// Authorization gate first, before anything about the host or tooling.
-	// An unauthorized request is rejected whether or not the tool is installed.
-	if !r.Confirmed {
-		return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
-	}
-	if len(r.AuthorizationRef) < 3 {
-		return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
+	// Authorization gate, before anything about tooling. Scanning your own
+	// local network, loopback, or private ranges is friction-free. External
+	// targets (public IPs, domains, or allow_external) still require an
+	// explicit confirmation and an authorization reference.
+	if !ScanIsLocal(c, r) {
+		if !r.Confirmed {
+			return nil, nil, "", fmt.Errorf("external target: confirm you are authorized to test it")
+		}
+		if len(r.AuthorizationRef) < 3 {
+			return nil, nil, "", fmt.Errorf("external target: an authorization reference is required (ticket, ROE, or engagement id)")
+		}
 	}
 	if !c.Available() {
 		return nil, nil, "", fmt.Errorf("%s is not installed (missing binary %q)", c.Name, c.Binary)

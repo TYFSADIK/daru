@@ -44,6 +44,61 @@ func ValidateTarget(c *Connector, r Request) (string, error) {
 	return "", fmt.Errorf("unsupported target kind")
 }
 
+// ScanIsLocal reports whether a scan stays on the local environment: a blank
+// target for a local tool, a private or loopback IP or CIDR, a local file or
+// interface, or a hostname that resolves only to private addresses. External
+// scans (public IPs, domains, or allow_external) are not local and still go
+// through the authorization gate.
+func ScanIsLocal(c *Connector, r Request) bool {
+	if r.AllowExternal {
+		return false
+	}
+	t := strings.TrimSpace(r.Target)
+	if t == "" {
+		return c.AllowEmptyTarget
+	}
+	switch c.TargetKind {
+	case TgtNone, TgtIface, TgtPcap:
+		return true
+	case TgtDomain:
+		return false
+	case TgtURL:
+		u, err := url.Parse(t)
+		if err != nil || u.Hostname() == "" {
+			return false
+		}
+		return hostnameIsPrivate(u.Hostname())
+	case TgtHost, TgtCIDR:
+		if strings.Contains(t, "/") {
+			_, ipnet, err := net.ParseCIDR(t)
+			return err == nil && isPrivateNet(ipnet)
+		}
+		if ip := net.ParseIP(t); ip != nil {
+			return isPrivateIP(ip)
+		}
+		return hostnameIsPrivate(t)
+	}
+	return false
+}
+
+// hostnameIsPrivate resolves a hostname and reports whether every address it
+// maps to is private. An unresolvable name is treated as not private.
+func hostnameIsPrivate(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return isPrivateIP(ip)
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !isPrivateIP(ip) {
+			return false
+		}
+	}
+	return true
+}
+
 func guardHostOrCIDR(t string, allowCIDR, allowExternal bool) (string, error) {
 	if strings.Contains(t, "/") {
 		if !allowCIDR {

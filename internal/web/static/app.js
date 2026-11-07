@@ -593,18 +593,20 @@ async function renderRecon(view) {
     profSel.innerHTML = "";
     (c?.profiles || []).forEach((p) => profSel.appendChild(el("option", { value: p.name }, `${p.name} - ${p.desc}`)));
     left.querySelector(".conn-hint").textContent = c ? `${c.desc}  (${c.target_kind}${c.needs_root ? ", needs root" : ""})` : "";
-    targetIn.placeholder = "target: " + (c?.target_kind || "host");
+    if (c && c.allow_empty) targetIn.placeholder = "optional - leave blank to scan your own network";
+    else targetIn.placeholder = "target: " + (c?.target_kind || "host");
   }
   connSel.addEventListener("change", fillProfiles);
 
   form.appendChild(el("label", {}, "Tool", connSel));
   form.appendChild(el("div", { class: "conn-hint", style: "font-size:11.5px;color:var(--muted)" }));
   form.appendChild(el("label", {}, "Profile", profSel));
-  form.appendChild(el("label", {}, "Target", targetIn));
+  form.appendChild(el("label", {}, "Target (optional for local and own-network scans)", targetIn));
   form.appendChild(el("label", {}, "Ports", portsIn));
-  form.appendChild(el("label", {}, "Authorization reference", authIn));
+  form.appendChild(el("label", {}, "Authorization reference (external targets only)", authIn));
   form.appendChild(el("label", { style: "flex-direction:row;align-items:center;gap:8px" }, extChk, el("span", {}, "Allow external (public) target")));
-  form.appendChild(el("label", { style: "flex-direction:row;align-items:center;gap:8px" }, confirmChk, el("span", {}, "I am authorized to test this target")));
+  form.appendChild(el("label", { style: "flex-direction:row;align-items:center;gap:8px" }, confirmChk, el("span", {}, "I am authorized (required for external targets)")));
+  form.appendChild(el("div", { style: "font-size:11.5px;color:var(--muted)" }, "Scanning your own network, localhost, or private IPs needs no authorization reference."));
   form.appendChild(runBtn);
   form.appendChild(formErr);
   if (!canScan) { form.querySelectorAll("input,select,button").forEach((e) => e.disabled = true); formErr.textContent = "Power or admin role required to run scans."; }
