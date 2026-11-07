@@ -70,12 +70,24 @@ pick_bin_dir() {
 }
 
 # --- Go toolchain ------------------------------------------------------------
+# find_go echoes a usable go path, searching PATH and common install dirs
+# (a non-login shell may not have Go on PATH even when it is installed).
+find_go() {
+  if command -v go >/dev/null 2>&1; then command -v go; return; fi
+  for p in /usr/local/go/bin/go /usr/lib/go/bin/go /snap/bin/go \
+           "$HOME/.daru/go/bin/go" "$HOME/go/bin/go" /opt/go/bin/go; do
+    [ -x "$p" ] && { echo "$p"; return; }
+  done
+}
+
 have_recent_go() {
-  command -v go >/dev/null 2>&1 || return 1
-  v=$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//')
+  gp=$(find_go); [ -n "$gp" ] || return 1
+  v=$("$gp" version 2>/dev/null | awk '{print $3}' | sed 's/go//')
   maj=$(echo "$v" | cut -d. -f1); min=$(echo "$v" | cut -d. -f2)
-  [ "${maj:-0}" -gt "$GO_MIN_MAJOR" ] && return 0
-  [ "${maj:-0}" -eq "$GO_MIN_MAJOR" ] && [ "${min:-0}" -ge "$GO_MIN_MINOR" ]
+  if [ "${maj:-0}" -gt "$GO_MIN_MAJOR" ] || { [ "${maj:-0}" -eq "$GO_MIN_MAJOR" ] && [ "${min:-0}" -ge "$GO_MIN_MINOR" ]; }; then
+    GO="$gp"; return 0
+  fi
+  return 1
 }
 
 install_go() {
@@ -155,10 +167,10 @@ main() {
 
   GO="go"
   if have_recent_go; then
-    say "Using $(go version)"
+    say "Using $("$GO" version)"
   else
     install_go
-    say "Using $($GO version)"
+    say "Using $("$GO" version)"
   fi
 
   say "Building Daru"
@@ -166,7 +178,13 @@ main() {
 
   BIN_DIR=$(pick_bin_dir)
   mkdir -p "$BIN_DIR"
-  cp "$REPO_DIR/daru" "$BIN_DIR/daru"
+  # Install atomically: copy to a temp name, then rename over the target. A
+  # plain cp onto a running binary fails with "Text file busy"; rename does
+  # not, because the running process keeps the old inode.
+  tmpbin="$BIN_DIR/.daru.new.$$"
+  cp "$REPO_DIR/daru" "$tmpbin"
+  chmod +x "$tmpbin"
+  mv -f "$tmpbin" "$BIN_DIR/daru"
   say "Installed daru to $BIN_DIR/daru"
   case ":$PATH:" in *":$BIN_DIR:"*) : ;; *) warn "Add $BIN_DIR to your PATH" ;; esac
 
