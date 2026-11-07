@@ -100,12 +100,39 @@ install_go() {
 }
 
 # --- ClickHouse --------------------------------------------------------------
+# Poll the HTTP interface until it answers, so a port or startup problem is
+# reported here rather than as a silent wait loop when Daru starts.
+wait_for_clickhouse() {
+  ping_cmd=""
+  if command -v curl >/dev/null 2>&1; then
+    ping_cmd='curl -fsS -m 2 http://127.0.0.1:8123/ping'
+  elif command -v wget >/dev/null 2>&1; then
+    ping_cmd='wget -q -T 2 -O - http://127.0.0.1:8123/ping'
+  fi
+  [ -z "$ping_cmd" ] && return 0
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if eval "$ping_cmd" >/dev/null 2>&1; then
+      say "ClickHouse is reachable at 127.0.0.1:8123"
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  warn "ClickHouse did not become reachable at 127.0.0.1:8123."
+  warn "Check 'docker compose -f deploy/docker-compose.yml logs clickhouse' and that port 8123 is published."
+  return 1
+}
+
 setup_clickhouse() {
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     say "Starting ClickHouse with Docker"
-    ( cd "$REPO_DIR/deploy" && \
-      CLICKHOUSE_PASSWORD="$CH_PASS" docker compose up -d clickhouse ) || \
+    if ( cd "$REPO_DIR/deploy" && \
+         CLICKHOUSE_PASSWORD="$CH_PASS" docker compose up -d clickhouse ); then
+      wait_for_clickhouse
+    else
       warn "Could not start ClickHouse via Docker; set DARU_CLICKHOUSE_URL to an existing instance"
+    fi
     return
   fi
   if [ "$IS_TERMUX" = 1 ]; then
@@ -146,7 +173,7 @@ main() {
     mkdir -p "$HOME/.daru"
     CH_PASS=$(rand_secret); ADMIN_PASS=$(rand_secret)
     cat > "$ENV_FILE" <<EOF
-DARU_CLICKHOUSE_URL=http://localhost:8123
+DARU_CLICKHOUSE_URL=http://127.0.0.1:8123
 DARU_CLICKHOUSE_DB=daru
 DARU_CLICKHOUSE_USER=daru
 DARU_CLICKHOUSE_PASSWORD=$CH_PASS

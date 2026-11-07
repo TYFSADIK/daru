@@ -199,7 +199,7 @@ You need Go 1.25+ and a reachable ClickHouse.
 
 ```bash
 go build -o daru ./cmd/daru
-export DARU_CLICKHOUSE_URL=http://localhost:8123
+export DARU_CLICKHOUSE_URL=http://127.0.0.1:8123
 export DARU_CLICKHOUSE_USER=default
 export DARU_CLICKHOUSE_PASSWORD=yourpassword
 ./daru useradd -u admin -p 'a-strong-password' -role admin
@@ -229,7 +229,7 @@ curl http://localhost:8088/services/collector/raw?sourcetype=syslog \
 | Variable | Default | Meaning |
 |---|---|---|
 | `DARU_LISTEN` | `:8088` | Listen address |
-| `DARU_CLICKHOUSE_URL` | `http://localhost:8123` | ClickHouse HTTP URL |
+| `DARU_CLICKHOUSE_URL` |  `http://127.0.0.1:8123` | ClickHouse HTTP URL |
 | `DARU_CLICKHOUSE_DB` | `daru` | Database name |
 | `DARU_CLICKHOUSE_USER` | `default` | ClickHouse user |
 | `DARU_CLICKHOUSE_PASSWORD` | | ClickHouse password |

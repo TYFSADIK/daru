@@ -40,7 +40,7 @@ type config struct {
 func loadConfig() config {
 	return config{
 		listen:    env("DARU_LISTEN", ":8088"),
-		chURL:     env("DARU_CLICKHOUSE_URL", "http://localhost:8123"),
+		chURL:     env("DARU_CLICKHOUSE_URL", "http://127.0.0.1:8123"),
 		chDB:      env("DARU_CLICKHOUSE_DB", "daru"),
 		chUser:    env("DARU_CLICKHOUSE_USER", "default"),
 		chPass:    env("DARU_CLICKHOUSE_PASSWORD", ""),
@@ -91,7 +91,7 @@ Usage:
 
 Configuration (environment variables):
   DARU_LISTEN                Listen address (default :8088)
-  DARU_CLICKHOUSE_URL        ClickHouse HTTP URL (default http://localhost:8123)
+  DARU_CLICKHOUSE_URL        ClickHouse HTTP URL (default http://127.0.0.1:8123)
   DARU_CLICKHOUSE_DB         Database name (default daru)
   DARU_CLICKHOUSE_USER       ClickHouse user (default default)
   DARU_CLICKHOUSE_PASSWORD   ClickHouse password
