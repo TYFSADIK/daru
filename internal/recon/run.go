@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -110,7 +111,12 @@ func Run(ctx context.Context, c *Connector, args []string, r Request, timeout ti
 		Command: c.Binary + " " + shellQuote(args), Started: time.Now().UTC(),
 	}
 
-	cmd := exec.CommandContext(runCtx, c.Binary, args...)
+	bin := resolveBinary(c.Binary)
+	if bin == "" {
+		bin = c.Binary
+	}
+	cmd := exec.CommandContext(runCtx, bin, args...)
+	cmd.Env = append(os.Environ(), "PATH="+execPATH())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = capWriter(&stdout, MaxOutputBytes)
 	cmd.Stderr = capWriter(&stderr, 256<<10)

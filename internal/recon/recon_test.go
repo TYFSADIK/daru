@@ -1,6 +1,7 @@
 package recon
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,21 @@ func TestRegistryInstalled(t *testing.T) {
 		if strings.Contains(strings.ToLower(string(c.Category)), "ddos") {
 			t.Errorf("connector %q is in a denied category", name)
 		}
+	}
+}
+
+func TestResolveBinaryExtraDirs(t *testing.T) {
+	dir := t.TempDir()
+	name := "daru-fake-tool-xyz"
+	p := dir + "/" + name
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOBIN", dir)
+	if got := resolveBinary(name); got != p {
+		t.Errorf("resolveBinary via GOBIN = %q, want %q", got, p)
+	}
+	if resolveBinary("definitely-not-a-real-binary-123") != "" {
+		t.Error("expected empty for a missing binary")
 	}
 }

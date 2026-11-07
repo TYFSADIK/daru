@@ -197,7 +197,10 @@ EOF
 
   if [ "$WITH_TOOLS" = 1 ]; then
     say "Installing security scanners (--with-tools)"
-    RECON_ASSUME_YES=1 sh "$REPO_DIR/scripts/install-recon-tools.sh" || \
+    # Make sure `go` is on PATH for the recon script's go-install step, even
+    # when we just downloaded the toolchain to $HOME/.daru/go/bin.
+    GO_BIN_DIR=$(dirname "$GO")
+    RECON_ASSUME_YES=1 PATH="$GO_BIN_DIR:$PATH" sh "$REPO_DIR/scripts/install-recon-tools.sh" || \
       warn "Some scanners could not be installed; you can re-run scripts/install-recon-tools.sh later"
   fi
 

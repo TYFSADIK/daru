@@ -39,7 +39,7 @@ fi
 # Package sets by manager. Names differ a little per platform; missing ones
 # are skipped rather than failing the whole run. These are discovery,
 # vulnerability, web, DNS/OSINT, and traffic-analysis tools only.
-APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny"
+APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze testssl.sh tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti smbmap dnstwist recon-ng unicornscan nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny pipx python3-pip"
 BREW="nmap masscan zmap nikto whatweb wafw00f amass sslscan sslyze wireshark fping hping theharvester nuclei httpx subfinder dnsx gobuster ffuf sqlmap hydra arp-scan whois ncat socat"
 PKG="nmap masscan nikto tshark tcpdump fping hydra sqlmap gobuster whois ncat socat net-tools"
 DNF="nmap masscan nikto whatweb tcpdump wireshark-cli fping arp-scan theHarvester hydra sqlmap gobuster whois nmap-ncat socat"
@@ -72,6 +72,34 @@ elif command -v pacman >/dev/null 2>&1; then
 else
   warn "No supported package manager found. Install the tools you need manually."
   exit 1
+fi
+
+# Python-based scanners install cleanly with pipx (each in its own venv).
+# Binary names must match what Daru looks for: theHarvester, sslyze, wapiti,
+# dnstwist, smbmap, recon-ng.
+if ! command -v pipx >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y pipx 2>/dev/null || true
+  elif command -v python3 >/dev/null 2>&1; then python3 -m pip install --user pipx 2>/dev/null || true
+  fi
+fi
+if command -v pipx >/dev/null 2>&1; then
+  say "Installing Python-based scanners with pipx"
+  pipx ensurepath >/dev/null 2>&1 || true
+  for spec in \
+    "theHarvester:theHarvester" \
+    "sslyze:sslyze" \
+    "wapiti:wapiti3" \
+    "dnstwist:dnstwist" \
+    "smbmap:smbmap" \
+    "recon-ng:recon-ng"
+  do
+    name=${spec%%:*}; pkg=${spec#*:}
+    if command -v "$name" >/dev/null 2>&1; then say "have $name"; continue; fi
+    say "pipx install $pkg"
+    pipx install "$pkg" 2>/dev/null || warn "skip $pkg (pipx install failed)"
+  done
+else
+  say "pipx not available; skipping theHarvester/sslyze/wapiti/dnstwist/smbmap."
 fi
 
 # Several popular scanners (ProjectDiscovery's nuclei, httpx, subfinder, dnsx,
@@ -108,4 +136,6 @@ if [ "$(uname -s)" = "Linux" ] && [ -f "$SCRIPT_DIR/grant-capabilities.sh" ]; th
   sh "$SCRIPT_DIR/grant-capabilities.sh" || warn "capability grant skipped; run scripts/grant-capabilities.sh later"
 fi
 
-say "Done. Tools that installed will show as available in Daru's Recon tab."
+say "Done. Daru searches PATH plus ~/go/bin and ~/.local/bin, so these appear"
+say "in the Recon tab automatically. A few tools need manual setup if you want"
+say "them: spiderfoot (binary sfcli), openvas/gvm (gvm-cli), unicornscan."

@@ -12,7 +12,9 @@ package recon
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -104,8 +106,59 @@ func (c *Connector) Available() bool {
 	if c.native != nil {
 		return true
 	}
-	_, err := exec.LookPath(c.Binary)
-	return err == nil
+	return resolveBinary(c.Binary) != ""
+}
+
+// extraBinDirs lists common install locations a service PATH often misses:
+// Go tools (~/go/bin), user/pipx installs (~/.local/bin), sbin dirs, snap,
+// and Homebrew. Daru searches these so a tool installed by the recon script
+// is found no matter how daru was launched.
+func extraBinDirs() []string {
+	home, _ := os.UserHomeDir()
+	dirs := []string{}
+	if gb := os.Getenv("GOBIN"); gb != "" {
+		dirs = append(dirs, gb)
+	}
+	if gp := os.Getenv("GOPATH"); gp != "" {
+		dirs = append(dirs, filepath.Join(gp, "bin"))
+	}
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, "go", "bin"), filepath.Join(home, ".local", "bin"))
+	}
+	dirs = append(dirs,
+		"/usr/local/bin", "/usr/local/sbin", "/usr/sbin", "/sbin",
+		"/snap/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin")
+	return dirs
+}
+
+// resolveBinary returns the absolute path of an executable found on PATH or in
+// one of the extra bin dirs, or "" if it is not installed.
+func resolveBinary(name string) string {
+	if name == "" {
+		return ""
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, d := range extraBinDirs() {
+		p := filepath.Join(d, name)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
+}
+
+// execPATH returns a PATH value that includes the extra bin dirs, so a tool
+// that shells out to another tool (for example nuclei calling httpx) can find
+// it even when daru was started with a minimal PATH.
+func execPATH() string {
+	parts := []string{}
+	if p := os.Getenv("PATH"); p != "" {
+		parts = append(parts, p)
+	}
+	parts = append(parts, extraBinDirs()...)
+	return strings.Join(parts, string(os.PathListSeparator))
 }
 
 // Registry holds all connectors by name.
