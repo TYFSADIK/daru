@@ -33,18 +33,20 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 	if !ok {
 		return nil, nil, "", fmt.Errorf("unknown connector %q", r.Connector)
 	}
+	// Authorization gate first, before anything about the host or tooling.
+	// An unauthorized request is rejected whether or not the tool is installed.
+	if !r.Confirmed {
+		return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
+	}
+	if len(r.AuthorizationRef) < 3 {
+		return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
+	}
 	if !c.Available() {
 		return nil, nil, "", fmt.Errorf("%s is not installed (missing binary %q)", c.Name, c.Binary)
 	}
 	if c.IsNative() {
-		// Native connectors still pass the gate and scope validation below,
-		// but build no command-line arguments.
-		if !r.Confirmed {
-			return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
-		}
-		if len(r.AuthorizationRef) < 3 {
-			return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
-		}
+		// Native connectors build no command-line arguments, but still pass
+		// scope validation below.
 		if c.AllowEmptyTarget && strings.TrimSpace(r.Target) == "" {
 			return c, nil, "", nil
 		}
@@ -53,12 +55,6 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 			return nil, nil, "", err
 		}
 		return c, nil, target, nil
-	}
-	if !r.Confirmed {
-		return nil, nil, "", fmt.Errorf("you must confirm you are authorized to test this target")
-	}
-	if len(r.AuthorizationRef) < 3 {
-		return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
 	}
 	target, err := ValidateTarget(c, r)
 	if err != nil {
