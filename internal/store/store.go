@@ -55,6 +55,11 @@ func (s *Store) exec(ctx context.Context, sql string) error {
 	return err
 }
 
+// Exec runs a statement that returns no rows.
+func (s *Store) Exec(ctx context.Context, sql string) error {
+	return s.exec(ctx, sql)
+}
+
 func (s *Store) do(ctx context.Context, sql, database string) ([]byte, error) {
 	q := url.Values{}
 	if database != "" {
