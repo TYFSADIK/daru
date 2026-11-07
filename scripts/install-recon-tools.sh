@@ -39,7 +39,7 @@ fi
 # Package sets by manager. Names differ a little per platform; missing ones
 # are skipped rather than failing the whole run. These are discovery,
 # vulnerability, web, DNS/OSINT, and traffic-analysis tools only.
-APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze testssl.sh tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti smbmap dnstwist recon-ng unicornscan nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny pipx python3-pip python3-venv python3-full"
+APT="nmap masscan zmap nikto whatweb wafw00f dnsutils dnsrecon dnsenum fierce amass sslscan sslyze testssl.sh tshark tcpdump fping hping3 arp-scan netdiscover theharvester wapiti smbmap enum4linux dnstwist recon-ng unicornscan nbtscan onesixtyone snmp smbclient nuclei whois wordlists seclists hydra sqlmap wfuzz gobuster dirb ncat socat net-tools traceroute mtr-tiny pipx python3-pip python3-venv python3-full"
 BREW="nmap masscan zmap nikto whatweb wafw00f amass sslscan sslyze wireshark fping hping theharvester nuclei httpx subfinder dnsx gobuster ffuf sqlmap hydra arp-scan whois ncat socat"
 PKG="nmap masscan nikto tshark tcpdump fping hydra sqlmap gobuster whois ncat socat net-tools"
 DNF="nmap masscan nikto whatweb tcpdump wireshark-cli fping arp-scan theHarvester hydra sqlmap gobuster whois nmap-ncat socat"
@@ -134,7 +134,10 @@ if command -v go >/dev/null 2>&1; then
     "amass:github.com/owasp-amass/amass/v4/...@master"
   do
     name=${spec%%:*}; pkg=${spec#*:}
-    if command -v "$name" >/dev/null 2>&1; then say "have $name"; continue; fi
+    # Only skip when the tool already lives in GOBIN. A same-named binary
+    # elsewhere on PATH (e.g. the Python "httpx" client shadowing
+    # ProjectDiscovery's httpx) must not stop us installing the real tool.
+    if [ -x "$GOBIN/$name" ]; then say "have $name"; continue; fi
     say "go install $name"
     go install "$pkg" 2>/dev/null || warn "skip $name (go install failed)"
   done

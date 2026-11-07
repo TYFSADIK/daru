@@ -1,6 +1,9 @@
 package recon
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // profile returns the requested profile name or the first as default.
 func profileOr(c *Connector, name string) string {
@@ -24,8 +27,16 @@ func init() {
 			{"discovery", "Ping sweep, no port scan"},
 		},
 		build: func(c *Connector, r Request) ([]string, error) {
-			args := []string{"-oX", "-", "-Pn", "--host-timeout", "15m"}
-			switch profileOr(c, r.Profile) {
+			args := []string{"-oX", "-", "--host-timeout", "15m"}
+			prof := profileOr(c, r.Profile)
+			// -Pn treats every host as online, which is right for a port scan
+			// of a host that blocks pings but wrong for host discovery, where
+			// it would report every address in the range as "up". So -Pn is
+			// added for every profile except discovery.
+			if prof != "discovery" {
+				args = append(args, "-Pn")
+			}
+			switch prof {
 			case "quick":
 				args = append(args, "-T4", "--top-ports", "100")
 			case "full":
@@ -79,8 +90,13 @@ func init() {
 			if !validPorts(port) || port == "" {
 				return nil, fmt.Errorf("set a single target port")
 			}
-			return []string{"-p", port, "-o", "-", "-f", "saddr,sport", r.Target}, nil
+			// zmap's default blocklist excludes RFC1918 ranges, so an
+			// out-of-the-box scan of a home/office LAN finds nothing. An empty
+			// blocklist lets it scan the private range the operator asked for;
+			// the scope guard already restricts the target to authorized nets.
+			return []string{"-p", port, "-b", os.DevNull, "-o", "-", "-f", "saddr,sport", r.Target}, nil
 		},
+		parse: parseZmap,
 	})
 
 	register(&Connector{
@@ -90,6 +106,7 @@ func init() {
 		build: func(c *Connector, r Request) ([]string, error) {
 			return []string{"-a", "-q", "-g", r.Target}, nil
 		},
+		parse: parseAliveHosts,
 	})
 
 	register(&Connector{
@@ -119,7 +136,10 @@ func init() {
 		Name: "smbmap", Binary: "smbmap", Category: CatEnum, TargetKind: TgtHost,
 		Desc:     "SMB share enumeration.",
 		Profiles: []Profile{{"list", "List shares and permissions"}},
-		build:    func(c *Connector, r Request) ([]string, error) { return []string{"-H", r.Target}, nil },
+		build: func(c *Connector, r Request) ([]string, error) {
+			return []string{"-H", r.Target, "--no-banner", "--no-color"}, nil
+		},
+		parse: parseSmbmap,
 	})
 
 	// ---- Vulnerability scanning ----
@@ -141,8 +161,9 @@ func init() {
 		Desc:     "Web server misconfiguration and known-issue scanner.",
 		Profiles: []Profile{{"default", "Standard scan"}},
 		build: func(c *Connector, r Request) ([]string, error) {
-			return []string{"-host", r.Target, "-Format", "json", "-output", "-", "-nointeractive"}, nil
+			return []string{"-host", r.Target, "-Format", "json", "-output", "/dev/stdout", "-nointeractive"}, nil
 		},
+		parse: parseNikto,
 	})
 	register(&Connector{
 		Name: "wapiti", Binary: "wapiti", Category: CatVulnScan, TargetKind: TgtURL,
@@ -170,6 +191,9 @@ func init() {
 			return []string{"-u", r.Target, "-json", "-silent", "-title", "-tech-detect", "-status-code"}, nil
 		},
 		parse: parseJSONLines,
+		// Reject the unrelated Python "httpx" HTTP client that often sits on
+		// PATH; ProjectDiscovery's httpx help advertises these flags.
+		verify: verifyHelpContains("-h", "-status-code", "-td,", "projectdiscovery"),
 	})
 	register(&Connector{
 		Name: "whatweb", Binary: "whatweb", Category: CatWebScan, TargetKind: TgtURL,
@@ -273,12 +297,20 @@ func init() {
 		parse: parseJSONLines,
 	})
 	register(&Connector{
-		Name: "testssl", Binary: "testssl.sh", Category: CatTLS, TargetKind: TgtHost,
+		Name: "testssl", Binary: "testssl", Category: CatTLS, TargetKind: TgtHost,
 		Desc:     "Check a server's TLS ciphers, protocols, and flaws.",
 		Profiles: []Profile{{"default", "Standard checks"}},
 		build: func(c *Connector, r Request) ([]string, error) {
-			return []string{"--jsonfile-pretty", "/dev/stdout", "--quiet", r.Target}, nil
+			t := r.Target
+			if r.Ports != "" {
+				if !validPorts(r.Ports) {
+					return nil, fmt.Errorf("invalid port")
+				}
+				t = r.Target + ":" + r.Ports
+			}
+			return []string{"--jsonfile", "/dev/stdout", "--quiet", "--color", "0", t}, nil
 		},
+		parse: parseTestssl,
 	})
 
 	// ---- Traffic & protocol analysis ----

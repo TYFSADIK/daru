@@ -1,9 +1,11 @@
 package recon
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -212,7 +214,7 @@ func parseJSONLines(out []byte, r Request) []Finding {
 		if json.Unmarshal([]byte(line), &obj) != nil {
 			continue
 		}
-		title := firstStr(obj, "url", "host", "input", "name", "domain", "fqdn")
+		title := firstStr(obj, "url", "host", "input", "name", "domain", "fqdn", "target", "address")
 		if title == "" {
 			title = line
 			if len(title) > 160 {
@@ -288,6 +290,359 @@ func parseTsharkFields(out []byte, r Request) []Finding {
 		}
 	}
 	return findings
+}
+
+// --- alive-host lists (fping) : one IP per line, feeds the asset inventory ---
+
+func parseAliveHosts(out []byte, r Request) []Finding {
+	var findings []Finding
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		ip := strings.TrimSpace(line)
+		// fping may append timing after the address; keep the first field.
+		if i := strings.IndexByte(ip, ' '); i > 0 {
+			ip = ip[:i]
+		}
+		if ip == "" || seen[ip] || net.ParseIP(ip) == nil {
+			continue
+		}
+		seen[ip] = true
+		findings = append(findings, Finding{
+			Title: ip, Severity: "info", Target: ip, Service: "device", Detail: "host is up",
+			Fields: map[string]string{"_kind": "host", "ip": ip, "status": "up"},
+		})
+	}
+	return findings
+}
+
+// --- zmap: "saddr,sport" CSV with a header line ---
+
+func parseZmap(out []byte, r Request) []Finding {
+	var findings []Finding
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "saddr") {
+			continue
+		}
+		cols := strings.Split(line, ",")
+		ip := strings.TrimSpace(cols[0])
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		port := ""
+		if len(cols) > 1 {
+			port = strings.TrimSpace(cols[1])
+		}
+		key := ip + ":" + port
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		title := ip
+		if port != "" {
+			title = fmt.Sprintf("%s:%s open", ip, port)
+		}
+		findings = append(findings, Finding{
+			Title: title, Severity: "info", Target: ip, Port: port, Service: "open-port",
+			Fields: map[string]string{"_kind": "host", "ip": ip, "port": port, "status": "up"},
+		})
+	}
+	return findings
+}
+
+// --- smbmap share listing ---
+
+func parseSmbmap(out []byte, r Request) []Finding {
+	var findings []Finding
+	inShares := false
+	for _, raw := range strings.Split(string(out), "\n") {
+		line := strings.TrimRight(raw, "\r")
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		// Host/status lines from smbmap begin with a [+]/[!]/[*] marker.
+		if strings.HasPrefix(t, "[+]") || strings.HasPrefix(t, "[!]") {
+			findings = append(findings, Finding{
+				Title: strings.TrimSpace(t[3:]), Severity: "info", Target: r.Target, Service: "smb",
+			})
+			continue
+		}
+		low := strings.ToLower(t)
+		if strings.HasPrefix(low, "disk") && strings.Contains(low, "permissions") {
+			inShares = true
+			continue
+		}
+		if strings.HasPrefix(t, "---") {
+			continue
+		}
+		if !inShares {
+			continue
+		}
+		// A real share row always carries a permission phrase; this skips
+		// smbmap's spinner and status lines ("[|]", "Authenticating...").
+		hasPerm := strings.Contains(low, "read") || strings.Contains(low, "write") || strings.Contains(low, "no access")
+		if !hasPerm {
+			continue
+		}
+		fields := strings.Fields(t)
+		if len(fields) < 2 {
+			continue
+		}
+		share := fields[0]
+		sev := "info"
+		switch {
+		case strings.Contains(low, "read, write") || strings.Contains(low, "write only"):
+			sev = "medium"
+		case strings.Contains(low, "read only"):
+			sev = "low"
+		}
+		findings = append(findings, Finding{
+			Title: "Share: " + share, Severity: sev, Target: r.Target, Service: "smb",
+			Detail: strings.TrimSpace(strings.TrimPrefix(t, share)),
+			Fields: map[string]string{"share": share},
+		})
+	}
+	if len(findings) == 0 {
+		return genericParse(out, r)
+	}
+	return findings
+}
+
+// --- testssl JSON ---
+
+func parseTestssl(out []byte, r Request) []Finding {
+	// testssl emits a JSON array of {id, ip, port, severity, finding}.
+	start := bytes.IndexByte(out, '[')
+	if start < 0 {
+		return genericParse(out, r)
+	}
+	var recs []struct {
+		ID       string `json:"id"`
+		Severity string `json:"severity"`
+		Finding  string `json:"finding"`
+	}
+	if json.Unmarshal(out[start:], &recs) != nil {
+		return genericParse(out, r)
+	}
+	var findings []Finding
+	for _, rec := range recs {
+		sev := mapTestsslSeverity(rec.Severity)
+		if sev == "" {
+			continue // skip OK/INFO/DEBUG noise
+		}
+		findings = append(findings, Finding{
+			Title: rec.ID + ": " + truncate(rec.Finding, 160), Severity: sev, Target: r.Target, Service: "tls",
+			Detail: rec.Finding, Fields: map[string]string{"id": rec.ID, "testssl_severity": rec.Severity},
+		})
+	}
+	if len(findings) == 0 {
+		findings = append(findings, Finding{Title: "TLS scan completed; no weaknesses flagged", Severity: "info", Target: r.Target, Service: "tls"})
+	}
+	return findings
+}
+
+func mapTestsslSeverity(s string) string {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "CRITICAL":
+		return "critical"
+	case "HIGH":
+		return "high"
+	case "MEDIUM":
+		return "medium"
+	case "LOW":
+		return "low"
+	case "WARN":
+		return "low"
+	}
+	return "" // OK, INFO, DEBUG, etc.
+}
+
+// --- nbtscan: "IP   NETBIOS-NAME ..." feeds the asset inventory ---
+
+func parseNbtscan(out []byte, r Request) []Finding {
+	var findings []Finding
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(strings.TrimSpace(line))
+		if len(f) < 2 || net.ParseIP(f[0]) == nil {
+			continue
+		}
+		ip, name := f[0], f[1]
+		findings = append(findings, Finding{
+			Title: ip + " (" + name + ")", Severity: "info", Target: ip, Service: "netbios",
+			Detail: strings.Join(f[1:], " "),
+			Fields: map[string]string{"_kind": "host", "ip": ip, "hostname": name, "status": "up"},
+		})
+	}
+	if len(findings) == 0 {
+		return genericParse(out, r)
+	}
+	return findings
+}
+
+// --- naabu JSON port scan ---
+
+func parseNaabu(out []byte, r Request) []Finding {
+	var findings []Finding
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var rec struct {
+			Host string `json:"host"`
+			IP   string `json:"ip"`
+			Port int    `json:"port"`
+		}
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		target := rec.IP
+		if target == "" {
+			target = rec.Host
+		}
+		findings = append(findings, Finding{
+			Title: fmt.Sprintf("%d/tcp open", rec.Port), Severity: "info", Target: target,
+			Port: fmt.Sprintf("%d", rec.Port), Service: "open-port",
+			Fields: map[string]string{"host": rec.Host, "ip": rec.IP, "port": fmt.Sprintf("%d", rec.Port)},
+		})
+	}
+	if len(findings) == 0 {
+		return genericParse(out, r)
+	}
+	return findings
+}
+
+// --- sslscan XML ---
+
+func parseSslscanXML(out []byte, r Request) []Finding {
+	start := bytes.IndexByte(out, '<')
+	if start < 0 {
+		return genericParse(out, r)
+	}
+	var doc struct {
+		SSLTest []struct {
+			Host    string `xml:"host,attr"`
+			Port    string `xml:"port,attr"`
+			Ciphers []struct {
+				Status string `xml:"status,attr"`
+				SSLV   string `xml:"sslversion,attr"`
+				Bits   string `xml:"bits,attr"`
+				Cipher string `xml:"cipher,attr"`
+			} `xml:"cipher"`
+			Certificate struct {
+				Expired  string `xml:"expired"`
+				NotAfter string `xml:"not-valid-after"`
+			} `xml:"certificate"`
+			Protocols []struct {
+				Type    string `xml:"type,attr"`
+				Version string `xml:"version,attr"`
+				Enabled string `xml:"enabled,attr"`
+			} `xml:"protocol"`
+		} `xml:"ssltest"`
+	}
+	if xml.Unmarshal(out[start:], &doc) != nil {
+		return genericParse(out, r)
+	}
+	var findings []Finding
+	for _, t := range doc.SSLTest {
+		for _, p := range t.Protocols {
+			if p.Enabled != "1" {
+				continue
+			}
+			sev := "info"
+			name := strings.ToLower(p.Type) + p.Version
+			if p.Type == "ssl" || p.Version == "1.0" || p.Version == "1.1" {
+				sev = "medium"
+			}
+			findings = append(findings, Finding{
+				Title: "Protocol enabled: " + name, Severity: sev, Target: t.Host, Port: t.Port, Service: "tls",
+			})
+		}
+		for _, c := range t.Ciphers {
+			if c.Status != "accepted" {
+				continue
+			}
+			sev := "info"
+			if c.SSLV == "SSLv2" || c.SSLV == "SSLv3" || c.SSLV == "TLSv1.0" {
+				sev = "medium"
+			}
+			findings = append(findings, Finding{
+				Title: "Cipher: " + c.Cipher + " (" + c.SSLV + ", " + c.Bits + " bit)", Severity: sev,
+				Target: t.Host, Port: t.Port, Service: "tls",
+			})
+		}
+	}
+	if len(findings) == 0 {
+		return genericParse(out, r)
+	}
+	return findings
+}
+
+// --- nikto JSON ---
+
+func parseNikto(out []byte, r Request) []Finding {
+	start := bytes.IndexByte(out, '{')
+	arrStart := bytes.IndexByte(out, '[')
+	if arrStart >= 0 && (start < 0 || arrStart < start) {
+		start = arrStart
+	}
+	if start < 0 {
+		return genericParse(out, r)
+	}
+	trimmed := bytes.TrimSpace(out[start:])
+	type vuln struct {
+		ID     string `json:"id"`
+		URL    string `json:"url"`
+		Method string `json:"method"`
+		Msg    string `json:"msg"`
+	}
+	collect := func(host string, vs []vuln) []Finding {
+		var fs []Finding
+		for _, v := range vs {
+			fs = append(fs, Finding{
+				Title: truncate(v.Msg, 200), Severity: "low", Target: firstNonEmptyStr(host, r.Target),
+				Detail: v.URL, Fields: map[string]string{"id": v.ID, "method": v.Method, "url": v.URL},
+			})
+		}
+		return fs
+	}
+	var findings []Finding
+	// Nikto JSON can be a single object or an array of host objects.
+	parseOne := func(b []byte) bool {
+		var obj struct {
+			Host  string `json:"host"`
+			IP    string `json:"ip"`
+			Vulns []vuln `json:"vulnerabilities"`
+		}
+		if json.Unmarshal(b, &obj) != nil {
+			return false
+		}
+		findings = append(findings, collect(firstNonEmptyStr(obj.Host, obj.IP), obj.Vulns)...)
+		return true
+	}
+	if trimmed[0] == '[' {
+		var arr []json.RawMessage
+		if json.Unmarshal(trimmed, &arr) == nil {
+			for _, m := range arr {
+				parseOne(m)
+			}
+		}
+	} else {
+		parseOne(trimmed)
+	}
+	if len(findings) == 0 {
+		return genericParse(out, r)
+	}
+	return findings
+}
+
+func firstNonEmptyStr(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }
 
 func firstStr(m map[string]any, keys ...string) string {

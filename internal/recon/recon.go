@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Category groups connectors for the UI.
@@ -89,6 +91,11 @@ type Connector struct {
 	// native, when set, collects findings in-process without an external
 	// binary (for passive OSINT such as crt.sh, DNS, and TLS inspection).
 	native func(ctx context.Context, r Request) ([]Finding, error)
+	// verify, when set, confirms a resolved binary path is really the tool
+	// this connector expects. It guards against an unrelated program of the
+	// same name shadowing the right one on PATH (for example the Python
+	// "httpx" HTTP client vs. ProjectDiscovery's "httpx" prober).
+	verify func(path string) bool
 }
 
 // IsNative reports whether the connector runs in-process.
@@ -106,7 +113,13 @@ func (c *Connector) Available() bool {
 	if c.native != nil {
 		return true
 	}
-	return resolveBinary(c.Binary) != ""
+	return c.resolve() != ""
+}
+
+// resolve returns the path of the binary this connector should run, honoring
+// an optional verifier that rejects a wrong same-named program.
+func (c *Connector) resolve() string {
+	return resolveBinaryVerified(c.Binary, c.verify)
 }
 
 // extraBinDirs lists common install locations a service PATH often misses:
@@ -142,19 +155,61 @@ func extraBinDirs() []string {
 // resolveBinary returns the absolute path of an executable found on PATH or in
 // one of the extra bin dirs, or "" if it is not installed.
 func resolveBinary(name string) string {
+	return resolveBinaryVerified(name, nil)
+}
+
+// resolveBinaryVerified is like resolveBinary but, when verify is non-nil,
+// returns the first candidate path that passes verify. If no candidate passes,
+// it returns "" so the connector is reported as unavailable rather than
+// running the wrong program.
+func resolveBinaryVerified(name string, verify func(string) bool) string {
 	if name == "" {
 		return ""
 	}
+	var cands []string
 	if p, err := exec.LookPath(name); err == nil {
-		return p
+		cands = append(cands, p)
 	}
 	for _, d := range extraBinDirs() {
 		p := filepath.Join(d, name)
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			cands = append(cands, p)
+		}
+	}
+	for _, p := range cands {
+		if verify == nil || verify(p) {
 			return p
 		}
 	}
 	return ""
+}
+
+// binVerifyCache memoizes verifier results per path; List() calls Available()
+// for every connector, and we do not want to exec a tool on each listing.
+var binVerifyCache sync.Map // path -> bool
+
+// verifyHelpContains runs "<path> <probeArg>" with a short timeout and reports
+// whether the combined output contains any of the wanted markers (lowercased).
+// It is used to tell same-named tools apart by their help/banner text.
+func verifyHelpContains(probeArg string, wanted ...string) func(string) bool {
+	return func(path string) bool {
+		if v, ok := binVerifyCache.Load(path); ok {
+			return v.(bool)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, _ := exec.CommandContext(ctx, path, probeArg).CombinedOutput()
+		low := strings.ToLower(string(out))
+		ok := false
+		for _, w := range wanted {
+			if strings.Contains(low, strings.ToLower(w)) {
+				ok = true
+				break
+			}
+		}
+		binVerifyCache.Store(path, ok)
+		return ok
+	}
 }
 
 // execPATH returns a PATH value that includes the extra bin dirs, so a tool

@@ -115,7 +115,7 @@ func Run(ctx context.Context, c *Connector, args []string, r Request, timeout ti
 		Command: c.Binary + " " + shellQuote(args), Started: time.Now().UTC(),
 	}
 
-	bin := resolveBinary(c.Binary)
+	bin := c.resolve()
 	if bin == "" {
 		bin = c.Binary
 	}

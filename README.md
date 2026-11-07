@@ -134,9 +134,11 @@ your `PATH`, and run `daru serve`.
 - **Accounts**: built-in users with Argon2id password hashing, roles (admin,
   power, user), and revocable sessions. No external identity provider needed.
 - **Retention**: per-index retention in days, enforced by ClickHouse TTL.
-- **Recon**: run authorized security tools (nmap, masscan, nuclei, subfinder,
-  amass, tshark, and more) and native collectors (crt.sh, DNS, TLS, RDAP) and
-  pull their findings into search.
+- **Recon**: run authorized security tools (nmap, masscan, naabu, zmap, nbtscan,
+  nuclei, nikto, httpx, whatweb, gobuster, ffuf, katana, sqlmap, subfinder,
+  amass, dnsenum, fierce, sslscan, testssl, smbmap, enum4linux, snmpwalk,
+  tshark, and more) and native collectors (crt.sh, DNS, TLS, RDAP) and pull
+  their structured findings into search.
 - **Network**: discover live devices on your LAN with IP, hostname, MAC,
   vendor, and OS.
 
