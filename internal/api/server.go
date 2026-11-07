@@ -86,6 +86,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/admin/tokens", s.authed(auth.RoleAdmin, s.handleListTokens))
 	mux.HandleFunc("POST /api/admin/tokens", s.authed(auth.RoleAdmin, s.handleCreateToken))
 	mux.HandleFunc("POST /api/admin/tokens/{name}/disable", s.authed(auth.RoleAdmin, s.handleDisableToken))
+	mux.HandleFunc("GET /api/system", s.authed(auth.RoleUser, s.handleSystemInfo))
+	mux.HandleFunc("POST /api/admin/update-tools", s.authed(auth.RoleAdmin, s.handleUpdateTools))
 
 	// Ingest (Splunk HEC compatible + raw + JSON).
 	mux.HandleFunc("POST /services/collector", s.handleHEC)

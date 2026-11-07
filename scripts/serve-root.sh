@@ -16,6 +16,16 @@ fi
 BIN=$(command -v daru 2>/dev/null || echo "$HOME/.local/bin/daru")
 [ -x "$BIN" ] || { echo "daru binary not found; run ./install.sh first" >&2; exit 1; }
 
+# Update every installed tool before serving, unless --no-update is passed.
+UPDATE=1
+for a in "$@"; do [ "$a" = "--no-update" ] && UPDATE=0; done
+if [ "$UPDATE" = 1 ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  if [ -f "$SCRIPT_DIR/update-tools.sh" ]; then
+    sh "$SCRIPT_DIR/update-tools.sh" || echo "[!] tool update had issues; continuing" >&2
+  fi
+fi
+
 # -E keeps the DARU_* and PATH values; SUDO_USER is set so Daru still finds
 # tools you installed in your own ~/go/bin and ~/.local/bin.
 echo "Starting Daru as root (local use). Listen: ${DARU_LISTEN:-:8088}"

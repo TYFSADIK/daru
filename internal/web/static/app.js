@@ -692,13 +692,14 @@ async function renderAdmin(view) {
   view.appendChild(pageHead("Administration", "Users, indexes, and ingest tokens"));
   const tabs = el("div", { class: "results-tabs", style: "margin-bottom:16px" });
   const body = el("div", {});
-  const defs = [["users", "Users"], ["indexes", "Indexes"], ["tokens", "Ingest tokens"]];
+  const defs = [["users", "Users"], ["indexes", "Indexes"], ["tokens", "Ingest tokens"], ["system", "System"]];
   let active = "users";
   function draw() {
     body.innerHTML = "";
     if (active === "users") adminUsers(body);
     else if (active === "indexes") adminIndexes(body);
-    else adminTokens(body);
+    else if (active === "tokens") adminTokens(body);
+    else adminSystem(body);
     [...tabs.children].forEach((c) => c.classList.toggle("active", c.dataset.t === active));
   }
   for (const [t, l] of defs) {
@@ -706,6 +707,58 @@ async function renderAdmin(view) {
     b.dataset.t = t; tabs.appendChild(b);
   }
   view.appendChild(tabs); view.appendChild(body); draw();
+}
+
+async function adminSystem(body) {
+  // Privilege status: works in both root and non-root mode.
+  const statusWrap = el("div", { class: "notice" }, "Checking privileges...");
+  body.appendChild(statusWrap);
+  try {
+    const sys = await API.get("/api/system");
+    statusWrap.innerHTML = "";
+    if (sys.running_as_root) {
+      statusWrap.style.borderLeftColor = "var(--green)";
+      statusWrap.appendChild(el("b", { style: "color:var(--green)" }, "Running as root. "));
+      statusWrap.appendChild(document.createTextNode("All scan and capture tools work without extra setup. Keep this instance local and not exposed."));
+    } else {
+      statusWrap.style.borderLeftColor = "var(--amber)";
+      statusWrap.appendChild(el("b", { style: "color:var(--amber)" }, "Running as a normal user. "));
+      statusWrap.appendChild(document.createTextNode("Most tools work; raw-socket scans (arp-scan, nmap SYN, masscan, capture) need CAP_NET_RAW. Run scripts/grant-capabilities.sh once, or start with scripts/serve-root.sh."));
+    }
+    statusWrap.appendChild(el("div", { style: "color:var(--muted);font-size:12px;margin-top:6px" },
+      `host ${sys.hostname || "?"} . uid ${sys.uid} . pid ${sys.pid}`));
+  } catch (ex) {
+    statusWrap.textContent = ex.message;
+  }
+
+  // Update-tools button.
+  const btn = el("button", { class: "btn-primary" }, "Update all security tools");
+  const hint = el("span", { style: "color:var(--muted);font-size:12.5px;margin-left:12px" },
+    "Updates installed scanners (apt, go install, pipx) and nuclei templates. Can take a few minutes.");
+  body.appendChild(el("div", { class: "toolbar", style: "margin-top:18px" }, btn, hint));
+  const out = el("pre", { class: "token-reveal", style: "display:none;white-space:pre-wrap;max-height:50vh;overflow:auto" });
+  body.appendChild(out);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = "Updating... (this can take several minutes)";
+    out.style.display = "block";
+    out.textContent = "Starting tool update. Please wait; do not close this tab...\n";
+    try {
+      const r = await API.post("/api/admin/update-tools", {});
+      out.textContent = r.output || "(no output)";
+      if (r.ok) toast("Tools updated");
+      else toast(r.error || "Update finished with warnings", "error");
+    } catch (ex) {
+      out.textContent += "\n" + ex.message;
+      toast(ex.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+      out.scrollTop = out.scrollHeight;
+    }
+  });
 }
 
 async function adminUsers(body) {
