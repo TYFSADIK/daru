@@ -1,0 +1,46 @@
+# Self-host Daru with one command: docker compose up -d
+#
+# This starts ClickHouse (storage) and Daru (API, ingest, UI). No API keys,
+# no external services. Change the passwords below before any real use.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: daru
+      CLICKHOUSE_USER: daru
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  daru:
+    build: ..
+    image: tyfsadik/daru:latest
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      DARU_CLICKHOUSE_URL: http://clickhouse:8123
+      DARU_CLICKHOUSE_DB: daru
+      DARU_CLICKHOUSE_USER: daru
+      DARU_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      DARU_ADMIN_USER: ${DARU_ADMIN_USER:-admin}
+      DARU_ADMIN_PASSWORD: ${DARU_ADMIN_PASSWORD:-change-me-admin}
+      DARU_LISTEN: ":8088"
+    ports:
+      - "8088:8088"
+
+volumes:
+  clickhouse-data:

@@ -20,7 +20,7 @@ func (m *Manager) Login(ctx context.Context, username, password string) (*User, 
 	if err != nil {
 		return nil, "", err
 	}
-	token, hash := NewToken("rc_sess")
+	token, hash := NewToken("daru_sess")
 	expires := time.Now().UTC().Add(m.sessionTTL)
 	sql := fmt.Sprintf(
 		"INSERT INTO sessions (token_hash, username, role, expires_at) VALUES (%s, %s, %s, %s)",

@@ -23,7 +23,7 @@ func (m *Manager) CreateIngestToken(ctx context.Context, name, defaultIndex, cre
 	if defaultIndex == "" {
 		defaultIndex = "main"
 	}
-	token, hash := NewToken("rc_hec")
+	token, hash := NewToken("daru_hec")
 	sql := fmt.Sprintf(
 		"INSERT INTO ingest_tokens (token_hash, name, default_index, created_by, updated_at) VALUES (%s, %s, %s, %s, now64(3))",
 		q(hash), q(name), q(defaultIndex), q(createdBy))

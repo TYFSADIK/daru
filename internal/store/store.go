@@ -35,7 +35,7 @@ type Config struct {
 // New creates a Store.
 func New(cfg Config) *Store {
 	if cfg.Database == "" {
-		cfg.Database = "basalt"
+		cfg.Database = "daru"
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 60 * time.Second

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daru</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" class="brand-logo" width="26" height="26">
+      <span class="brand-name">Daru</span>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip"><span id="user-name"></span><span class="role-badge" id="user-role"></span></div>
+      <button class="btn-ghost" id="logout-btn">Sign out</button>
+    </div>
+  </aside>
+  <main class="main" id="view"></main>
+</div>
+
+<div id="login" class="login hidden">
+  <form class="login-card" id="login-form">
+    <div class="login-brand">
+      <img src="logo.svg" alt="" width="44" height="44">
+      <h1>Daru</h1>
+    </div>
+    <p class="login-sub">Self-hosted log analytics and SIEM</p>
+    <label>Username<input name="username" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit" class="btn-primary">Sign in</button>
+    <p class="login-error" id="login-error"></p>
+  </form>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

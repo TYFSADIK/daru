@@ -163,6 +163,15 @@ func TestPipelineOrder(t *testing.T) {
 	if strings.Contains(c.SQL, "ORDER BY _time DESC") {
 		t.Errorf("stats result should not force time sort\n%s", c.SQL)
 	}
+	// A projection that drops _time must not then order by it.
+	c = mustCompile(t, `* | table host, status`)
+	if strings.Contains(c.SQL, "ORDER BY _time") {
+		t.Errorf("table without _time should not order by it\n%s", c.SQL)
+	}
+	c = mustCompile(t, `* | table _time, host`)
+	if !strings.Contains(c.SQL, "ORDER BY _time DESC") {
+		t.Errorf("table keeping _time should still sort by it\n%s", c.SQL)
+	}
 }
 
 var _ = time.Now

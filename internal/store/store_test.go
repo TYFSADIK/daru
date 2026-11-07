@@ -6,22 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TYFSADIK/basalt/internal/query"
+	"github.com/TYFSADIK/daru/internal/query"
 )
 
-// testStore connects to a live ClickHouse when BASALT_TEST_CH is set, else
+// testStore connects to a live ClickHouse when DARU_TEST_CH is set, else
 // skips. CI without a database still passes; local runs exercise real SQL.
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	url := os.Getenv("BASALT_TEST_CH")
+	url := os.Getenv("DARU_TEST_CH")
 	if url == "" {
-		t.Skip("set BASALT_TEST_CH to run store integration tests")
+		t.Skip("set DARU_TEST_CH to run store integration tests")
 	}
 	s := New(Config{
 		URL:      url,
 		Database: "basalt_test",
-		User:     os.Getenv("BASALT_TEST_USER"),
-		Password: os.Getenv("BASALT_TEST_PASS"),
+		User:     os.Getenv("DARU_TEST_USER"),
+		Password: os.Getenv("DARU_TEST_PASS"),
 	})
 	ctx := context.Background()
 	if err := s.Ping(ctx); err != nil {

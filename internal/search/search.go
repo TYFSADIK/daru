@@ -9,9 +9,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/TYFSADIK/basalt/internal/query"
-	"github.com/TYFSADIK/basalt/internal/store"
-	"github.com/TYFSADIK/basalt/internal/timeparse"
+	"github.com/TYFSADIK/daru/internal/query"
+	"github.com/TYFSADIK/daru/internal/store"
+	"github.com/TYFSADIK/daru/internal/timeparse"
 )
 
 // Service runs searches against the store.

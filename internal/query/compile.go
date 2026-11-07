@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TYFSADIK/basalt/internal/timeparse"
+	"github.com/TYFSADIK/daru/internal/timeparse"
 )
 
 // Options controls how a pipeline compiles to SQL.
@@ -79,7 +79,9 @@ func Compile(p *Pipeline, opt Options) (*Compiled, error) {
 	}
 
 	final := fmt.Sprintf("SELECT * FROM (%s)", rel.sql)
-	if !rel.ordered && !rel.transform {
+	// Sort newest-first for event views, but only when _time survives the
+	// pipeline: a projection such as `table foo` can drop it.
+	if !rel.ordered && !rel.transform && rel.explicit["_time"] {
 		final += " ORDER BY _time DESC"
 	}
 	final += fmt.Sprintf(" LIMIT %d", opt.MaxRows)

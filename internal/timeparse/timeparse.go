@@ -40,6 +40,9 @@ func relative(s string, now time.Time) (time.Time, error) {
 	snap := ""
 	if i := strings.IndexByte(s, '@'); i >= 0 {
 		rest, snap = s[:i], s[i+1:]
+		if snap == "" {
+			return time.Time{}, fmt.Errorf("invalid time %q: @ must be followed by a unit such as @d or @h", s)
+		}
 	}
 	if rest != "" && rest != "now" {
 		sign := 1

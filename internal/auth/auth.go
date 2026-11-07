@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/TYFSADIK/basalt/internal/store"
+	"github.com/TYFSADIK/daru/internal/store"
 )
 
 // Roles.

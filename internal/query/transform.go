@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/TYFSADIK/basalt/internal/timeparse"
+	"github.com/TYFSADIK/daru/internal/timeparse"
 )
 
 func compileEval(rel *relation, c *cmdEval) (*relation, error) {

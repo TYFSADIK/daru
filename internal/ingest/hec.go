@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TYFSADIK/basalt/internal/store"
+	"github.com/TYFSADIK/daru/internal/store"
 )
 
 // Ingester writes parsed events to the store.

@@ -1,0 +1,135 @@
+package api
+
+import (
+	"net/http"
+
+	"github.com/TYFSADIK/daru/internal/auth"
+)
+
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.Auth.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+		Email    string `json:"email"`
+	}
+	if err := readJSON(r, &req, 64*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.Role == "" {
+		req.Role = auth.RoleUser
+	}
+	u, err := s.Auth.CreateUser(r.Context(), req.Username, req.Password, req.Role, req.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
+func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &req, 64*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := s.Auth.SetPassword(r.Context(), r.PathValue("username"), req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := readJSON(r, &req, 16*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := s.Auth.SetRole(r.Context(), r.PathValue("username"), req.Role); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) handleSetDisabled(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := readJSON(r, &req, 16*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := s.Auth.SetDisabled(r.Context(), r.PathValue("username"), req.Disabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) handleCreateIndex(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name          string `json:"name"`
+		RetentionDays uint32 `json:"retention_days"`
+	}
+	if err := readJSON(r, &req, 16*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := s.Store.EnsureIndex(r.Context(), req.Name, req.RetentionDays); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "created"})
+}
+
+func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := s.Auth.ListIngestTokens(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
+}
+
+func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		DefaultIndex string `json:"default_index"`
+	}
+	if err := readJSON(r, &req, 16*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	owner := sessionFrom(r.Context()).Username
+	token, err := s.Auth.CreateIngestToken(r.Context(), req.Name, req.DefaultIndex, owner)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// The token is shown once, here only.
+	writeJSON(w, http.StatusOK, map[string]string{"token": token, "name": req.Name})
+}
+
+func (s *Server) handleDisableToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.Auth.DisableIngestToken(r.Context(), r.PathValue("name")); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
