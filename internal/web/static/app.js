@@ -1,5 +1,32 @@
 "use strict";
 
+// --- theme ---
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  const other = t === "dark" ? "Light" : "Dark";
+  const label = document.getElementById("theme-label");
+  const ic = document.getElementById("theme-ic");
+  if (label) label.textContent = other;
+  if (ic) ic.textContent = t === "dark" ? "☀" : "☾";
+}
+(function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem("daru_theme"); } catch (_) {}
+  if (!t) {
+    t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  applyTheme(t);
+  document.addEventListener("DOMContentLoaded", () => {
+    applyTheme(document.documentElement.getAttribute("data-theme"));
+    const btn = document.getElementById("theme-toggle");
+    if (btn) btn.addEventListener("click", () => {
+      const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      applyTheme(next);
+      try { localStorage.setItem("daru_theme", next); } catch (_) {}
+    });
+  });
+})();
+
 // --- API helper ---
 const API = {
   async call(method, path, body) {
@@ -297,7 +324,7 @@ function renderViz(r) {
   for (const row of r.rows) for (const s of series) max = Math.max(max, Number(row[s]) || 0);
   max = max || 1;
 
-  const palette = ["#2dd4bf", "#38bdf8", "#f59e0b", "#a78bfa", "#f87171", "#34d399", "#fb923c", "#60a5fa", "#e879f9", "#4ade80", "#facc15", "#22d3ee"];
+  const palette = ["#5e81f4", "#4bb4a0", "#d6a24b", "#c97b6a", "#8b86d4", "#5aa9d6", "#a77bbf", "#6aa86b", "#c98aa8", "#7f8ca3", "#4e9e86", "#b06f6f"];
   const chart = el("div", { class: "chart" });
   // Legend.
   const legend = el("div", { style: "display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted)" });

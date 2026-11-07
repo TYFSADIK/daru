@@ -56,6 +56,10 @@ security tools, all on hardware you control.
 
 ![Network](docs/screenshot-network.png)
 
+**Light theme, one click away:**
+
+![Search in light theme](docs/screenshot-search-light.png)
+
 ## Install (one command)
 
 Daru runs on Linux, macOS, Raspberry Pi, Windows, and Android (Termux).
