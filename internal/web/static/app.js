@@ -110,6 +110,7 @@ const ROUTES = [
   { path: "#/dashboards", label: "Dashboards", icon: "▦", min: "user", render: renderDashboards },
   { path: "#/alerts", label: "Alerts", icon: "⚠", min: "user", render: renderAlerts },
   { path: "#/security", label: "Security", icon: "⛨", min: "user", render: renderSecurity },
+  { path: "#/network", label: "Network", icon: "☰", min: "user", render: renderNetwork },
   { path: "#/recon", label: "Recon", icon: "◎", min: "user", render: renderRecon },
   { path: "#/admin", label: "Admin", icon: "⚙", min: "admin", render: renderAdmin },
 ];
@@ -474,6 +475,65 @@ function statusSelect(n, view) {
 
 function statCard(n, label) {
   return el("div", { class: "stat" }, el("div", { class: "n" }, fmtNum(n)), el("div", { class: "l" }, label));
+}
+
+// ===================== NETWORK (devices) =====================
+async function renderNetwork(view) {
+  const canScan = roleAtLeast(ME.role, "power");
+  const actions = [];
+  if (canScan) actions.push(el("button", { class: "btn-primary", onclick: discover }, "Discover my network"));
+  actions.push(el("button", { class: "btn-ghost", onclick: () => renderNetwork(view) }, "Refresh"));
+  view.appendChild(pageHead("Network", "Live devices discovered on your networks", actions));
+
+  const netLine = el("div", { class: "page-sub", style: "margin-bottom:12px" }, "Detecting local networks...");
+  view.appendChild(netLine);
+  const stats = el("div", { class: "stat-row" });
+  view.appendChild(stats);
+  const wrap = el("div", {}, el("div", { class: "spinner" }, "Loading devices..."));
+  view.appendChild(wrap);
+
+  try {
+    const n = await API.get("/api/recon/networks");
+    netLine.textContent = (n.networks && n.networks.length) ? "Local networks: " + n.networks.join(", ") : "No local network detected";
+  } catch (_) { netLine.textContent = ""; }
+
+  async function load() {
+    try {
+      const r = await API.get("/api/assets");
+      const assets = r.assets || [];
+      stats.innerHTML = "";
+      stats.appendChild(statCard(assets.length, "Devices"));
+      stats.appendChild(statCard(new Set(assets.map((a) => a.vendor).filter(Boolean)).size, "Vendors"));
+      stats.appendChild(statCard(assets.filter((a) => a.status === "up").length, "Online"));
+      wrap.innerHTML = "";
+      if (!assets.length) {
+        wrap.appendChild(el("div", { class: "empty" }, canScan ? "No devices yet. Click “Discover my network” to scan your LAN." : "No devices discovered yet."));
+        return;
+      }
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["IP", "Hostname", "MAC", "Vendor", "OS", "Open ports", "Source", "Last seen"].map((h) => el("th", {}, h))));
+      for (const a of assets) {
+        t.appendChild(el("tr", {},
+          el("td", {}, a.ip), el("td", {}, a.hostname || "-"),
+          el("td", {}, a.mac || "-"), el("td", {}, a.vendor || "-"),
+          el("td", {}, a.os || "-"), el("td", {}, a.open_ports || "-"),
+          el("td", {}, a.source), el("td", {}, fmtTime(a.last_seen))));
+      }
+      wrap.appendChild(t);
+    } catch (ex) { wrap.innerHTML = ""; wrap.appendChild(el("div", { class: "empty" }, ex.message)); }
+  }
+
+  async function discover() {
+    const ref = prompt("Authorization reference (you must own or be allowed to scan this network):", "home-lab");
+    if (!ref) return;
+    try {
+      await API.post("/api/recon/scan", { connector: "netdiscover", target: "", profile: "arp", confirmed: true, authorization_ref: ref });
+      toast("Discovery started; devices will appear shortly");
+      let n = 0;
+      const timer = setInterval(() => { if (location.hash === "#/network" && n++ < 15) load(); else clearInterval(timer); }, 3000);
+    } catch (ex) { toast(ex.message, "error"); }
+  }
+
+  load();
 }
 
 // ===================== RECON =====================

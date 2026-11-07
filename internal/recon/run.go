@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -43,6 +44,9 @@ func Prepare(r Request) (*Connector, []string, string, error) {
 		}
 		if len(r.AuthorizationRef) < 3 {
 			return nil, nil, "", fmt.Errorf("an authorization reference is required (ticket, ROE, or engagement id)")
+		}
+		if c.AllowEmptyTarget && strings.TrimSpace(r.Target) == "" {
+			return c, nil, "", nil
 		}
 		target, err := ValidateTarget(c, r)
 		if err != nil {

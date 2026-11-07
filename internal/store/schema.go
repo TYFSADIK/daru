@@ -124,6 +124,21 @@ var schemaStatements = []string{
 		detail      String DEFAULT ''
 	) ENGINE = MergeTree ORDER BY fired_at`,
 
+	// assets is the discovered device/host inventory.
+	`CREATE TABLE IF NOT EXISTS assets (
+		ip          String,
+		mac         String DEFAULT '',
+		vendor      String DEFAULT '',
+		hostname    String DEFAULT '',
+		os          String DEFAULT '',
+		open_ports  String DEFAULT '',
+		status      LowCardinality(String) DEFAULT 'up',
+		source      String DEFAULT '',
+		first_seen  DateTime64(3, 'UTC') DEFAULT now64(3),
+		last_seen   DateTime64(3, 'UTC') DEFAULT now64(3),
+		updated_at  DateTime64(3, 'UTC') DEFAULT now64(3)
+	) ENGINE = ReplacingMergeTree(updated_at) ORDER BY ip`,
+
 	// scans records security tool runs from the recon subsystem.
 	`CREATE TABLE IF NOT EXISTS scans (
 		id          UUID,

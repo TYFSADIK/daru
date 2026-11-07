@@ -15,9 +15,16 @@ type nmapRun struct {
 			State string `xml:"state,attr"`
 		} `xml:"status"`
 		Address []struct {
-			Addr string `xml:"addr,attr"`
-			Type string `xml:"addrtype,attr"`
+			Addr   string `xml:"addr,attr"`
+			Type   string `xml:"addrtype,attr"`
+			Vendor string `xml:"vendor,attr"`
 		} `xml:"address"`
+		Os struct {
+			OsMatch []struct {
+				Name     string `xml:"name,attr"`
+				Accuracy string `xml:"accuracy,attr"`
+			} `xml:"osmatch"`
+		} `xml:"os"`
 		Hostnames struct {
 			Hostname []struct {
 				Name string `xml:"name,attr"`
@@ -51,18 +58,49 @@ func parseNmapXML(out []byte, r Request) []Finding {
 	}
 	var findings []Finding
 	for _, h := range run.Hosts {
-		addr := ""
+		addr, mac, vendor := "", "", ""
 		for _, a := range h.Address {
-			if a.Type == "ipv4" || a.Type == "ipv6" {
+			switch a.Type {
+			case "ipv4", "ipv6":
 				addr = a.Addr
+			case "mac":
+				mac = strings.ToLower(a.Addr)
+				vendor = a.Vendor
 			}
 		}
-		host := addr
+		hostname := ""
 		if len(h.Hostnames.Hostname) > 0 {
-			host = h.Hostnames.Hostname[0].Name
+			hostname = h.Hostnames.Hostname[0].Name
 		}
-		if h.Status.State == "up" && len(h.Ports.Port) == 0 {
-			findings = append(findings, Finding{Title: "Host up: " + host, Severity: "info", Target: addr})
+		osName := ""
+		if len(h.Os.OsMatch) > 0 {
+			osName = h.Os.OsMatch[0].Name
+		}
+		if addr == "" {
+			continue
+		}
+		// One host-level device finding per up host, used to build inventory.
+		if h.Status.State == "up" {
+			var openPorts []string
+			for _, p := range h.Ports.Port {
+				if p.State.State == "open" {
+					openPorts = append(openPorts, p.PortID)
+				}
+			}
+			title := addr
+			if hostname != "" {
+				title += " (" + hostname + ")"
+			}
+			fields := map[string]string{"_kind": "host", "ip": addr, "mac": mac, "vendor": vendor,
+				"hostname": hostname, "os": osName, "ports": strings.Join(openPorts, ",")}
+			detail := strings.TrimSpace(vendor + " " + osName)
+			findings = append(findings, Finding{
+				Title: title, Severity: "info", Target: addr, Service: "device", Detail: detail, Fields: fields,
+			})
+		}
+		host := hostname
+		if host == "" {
+			host = addr
 		}
 		for _, p := range h.Ports.Port {
 			if p.State.State != "open" {

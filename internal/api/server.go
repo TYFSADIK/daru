@@ -73,6 +73,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/recon/scan", s.authed(auth.RolePower, s.handleReconScan))
 	mux.HandleFunc("GET /api/recon/scans", s.authed(auth.RoleUser, s.handleReconScans))
 	mux.HandleFunc("GET /api/recon/scans/{id}/findings", s.authed(auth.RoleUser, s.handleReconFindings))
+	mux.HandleFunc("GET /api/recon/networks", s.authed(auth.RoleUser, s.handleReconNetworks))
+	mux.HandleFunc("GET /api/assets", s.authed(auth.RoleUser, s.handleAssets))
 
 	// Administration.
 	mux.HandleFunc("GET /api/admin/users", s.authed(auth.RoleAdmin, s.handleListUsers))

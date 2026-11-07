@@ -55,6 +55,9 @@ func (s *Server) handleReconScan(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.InsertFindings(ctx, connector.Name, findings); err != nil {
 			s.Log.Warn("could not store findings", "scan", scanID, "err", err)
 		}
+		if err := s.Store.UpsertAssetsFromFindings(ctx, connector.Name, findings); err != nil {
+			s.Log.Warn("could not update asset inventory", "scan", scanID, "err", err)
+		}
 		status := "completed"
 		if res.Err != "" && len(findings) == 0 {
 			status = "failed"
@@ -67,6 +70,19 @@ func (s *Server) handleReconScan(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]any{"scan_id": scanID, "status": "running"})
+}
+
+func (s *Server) handleReconNetworks(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"networks": recon.LocalNetworks()})
+}
+
+func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
+	assets, err := s.Store.ListAssets(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"assets": assets})
 }
 
 func (s *Server) handleReconScans(w http.ResponseWriter, r *http.Request) {

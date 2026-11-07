@@ -78,8 +78,21 @@ func TestNmapParse(t *testing.T) {
 	<ports><port protocol="tcp" portid="22"><state state="open"/>
 	<service name="ssh" product="OpenSSH" version="9.0"/></port></ports></host></nmaprun>`
 	f := parseNmapXML([]byte(xml), Request{Target: "127.0.0.1"})
-	if len(f) != 1 || f[0].Port != "22/tcp" || f[0].Service != "ssh" {
-		t.Errorf("nmap parse wrong: %+v", f)
+	// Expect a host-level device finding plus the open-port finding.
+	var host, port *Finding
+	for i := range f {
+		if f[i].Service == "device" {
+			host = &f[i]
+		}
+		if f[i].Port == "22/tcp" {
+			port = &f[i]
+		}
+	}
+	if host == nil || host.Fields["_kind"] != "host" || host.Fields["ip"] != "127.0.0.1" {
+		t.Errorf("missing host device finding: %+v", f)
+	}
+	if port == nil || port.Service != "ssh" {
+		t.Errorf("missing open-port finding: %+v", f)
 	}
 }
 

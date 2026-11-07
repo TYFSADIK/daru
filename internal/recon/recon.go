@@ -77,6 +77,9 @@ type Connector struct {
 	Desc       string
 	Profiles   []Profile
 	NeedsRoot  bool
+	// AllowEmptyTarget lets a connector run with no target (e.g. netdiscover
+	// auto-detecting the local network).
+	AllowEmptyTarget bool
 	// build returns the command arguments for a request.
 	build func(c *Connector, r Request) ([]string, error)
 	// parse turns stdout into findings. A nil parse uses genericParse.
