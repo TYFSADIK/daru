@@ -27,6 +27,8 @@ type Server struct {
 	Log    *slog.Logger
 	Web    http.Handler // static UI, may be nil
 	Secure bool         // set Secure flag on cookies (behind HTTPS)
+
+	reconSem chan struct{} // bounds concurrent scans
 }
 
 const sessionCookie = "daru_session"
@@ -37,6 +39,9 @@ const sessionKey ctxKey = 1
 
 // Handler builds the HTTP handler with all routes.
 func (s *Server) Handler() http.Handler {
+	if s.reconSem == nil {
+		s.reconSem = make(chan struct{}, 4)
+	}
 	mux := http.NewServeMux()
 
 	// Auth.
@@ -62,6 +67,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/alerts/history", s.authed(auth.RoleUser, s.handleAlertHistory))
 	mux.HandleFunc("GET /api/notable", s.authed(auth.RoleUser, s.handleListNotable))
 	mux.HandleFunc("POST /api/notable/{id}/status", s.authed(auth.RolePower, s.handleNotableStatus))
+
+	// Recon and scanning.
+	mux.HandleFunc("GET /api/recon/connectors", s.authed(auth.RoleUser, s.handleReconConnectors))
+	mux.HandleFunc("POST /api/recon/scan", s.authed(auth.RolePower, s.handleReconScan))
+	mux.HandleFunc("GET /api/recon/scans", s.authed(auth.RoleUser, s.handleReconScans))
+	mux.HandleFunc("GET /api/recon/scans/{id}/findings", s.authed(auth.RoleUser, s.handleReconFindings))
 
 	// Administration.
 	mux.HandleFunc("GET /api/admin/users", s.authed(auth.RoleAdmin, s.handleListUsers))

@@ -124,6 +124,38 @@ var schemaStatements = []string{
 		detail      String DEFAULT ''
 	) ENGINE = MergeTree ORDER BY fired_at`,
 
+	// scans records security tool runs from the recon subsystem.
+	`CREATE TABLE IF NOT EXISTS scans (
+		id          UUID,
+		connector   LowCardinality(String),
+		target      String,
+		profile     String,
+		authorization_ref String,
+		status      LowCardinality(String) DEFAULT 'running',
+		command     String,
+		finding_count UInt32 DEFAULT 0,
+		error       String DEFAULT '',
+		created_by  String,
+		started_at  DateTime64(3, 'UTC'),
+		finished_at DateTime64(3, 'UTC') DEFAULT toDateTime64(0, 3),
+		updated_at  DateTime64(3, 'UTC') DEFAULT now64(3)
+	) ENGINE = ReplacingMergeTree(updated_at) ORDER BY id`,
+
+	// scan_findings holds structured results from each scan.
+	`CREATE TABLE IF NOT EXISTS scan_findings (
+		id          UUID,
+		scan_id     String,
+		created_at  DateTime64(3, 'UTC') DEFAULT now64(3),
+		connector   LowCardinality(String),
+		target      String,
+		title       String,
+		severity    LowCardinality(String) DEFAULT 'info',
+		port        String DEFAULT '',
+		service     String DEFAULT '',
+		detail      String DEFAULT '',
+		fields      Map(String, String)
+	) ENGINE = MergeTree ORDER BY (scan_id, severity)`,
+
 	// notable_events is the security incident queue (ES equivalent).
 	`CREATE TABLE IF NOT EXISTS notable_events (
 		id          UUID DEFAULT generateUUIDv4(),

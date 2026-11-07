@@ -216,8 +216,10 @@ func waitForStore(ctx context.Context, st *store.Store, log *slog.Logger) error 
 // bootstrapAdmin creates the first admin from env, or prints one if no users
 // exist and none was configured.
 func bootstrapAdmin(ctx context.Context, am *auth.Manager, st *store.Store, cfg config, log *slog.Logger) {
-	if err := st.EnsureIndex(ctx, "main", 90); err != nil {
-		log.Warn("could not ensure main index", "err", err)
+	for _, ix := range []string{"main", "recon"} {
+		if err := st.EnsureIndex(ctx, ix, 90); err != nil {
+			log.Warn("could not ensure index", "index", ix, "err", err)
+		}
 	}
 	count, err := am.CountUsers(ctx)
 	if err != nil {

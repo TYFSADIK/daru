@@ -110,6 +110,7 @@ const ROUTES = [
   { path: "#/dashboards", label: "Dashboards", icon: "▦", min: "user", render: renderDashboards },
   { path: "#/alerts", label: "Alerts", icon: "⚠", min: "user", render: renderAlerts },
   { path: "#/security", label: "Security", icon: "⛨", min: "user", render: renderSecurity },
+  { path: "#/recon", label: "Recon", icon: "◎", min: "user", render: renderRecon },
   { path: "#/admin", label: "Admin", icon: "⚙", min: "admin", render: renderAdmin },
 ];
 
@@ -473,6 +474,130 @@ function statusSelect(n, view) {
 
 function statCard(n, label) {
   return el("div", { class: "stat" }, el("div", { class: "n" }, fmtNum(n)), el("div", { class: "l" }, label));
+}
+
+// ===================== RECON =====================
+let reconConnectors = [];
+async function renderRecon(view) {
+  view.appendChild(pageHead("Recon & scanning", "Run authorized security tools and pull results into Daru"));
+  const layout = el("div", { class: "search-layout" });
+  const left = el("div", { class: "fields-panel", style: "max-height:none" });
+  const right = el("div", {});
+  layout.appendChild(left);
+  layout.appendChild(right);
+  view.appendChild(layout);
+
+  left.appendChild(el("h4", {}, "New scan"));
+  const form = el("div", { class: "form", style: "max-width:none;gap:9px" });
+  const canScan = roleAtLeast(ME.role, "power");
+
+  const connSel = el("select", {});
+  const profSel = el("select", {});
+  const targetIn = el("input", { placeholder: "target (host, CIDR, URL, domain)" });
+  const portsIn = el("input", { placeholder: "ports (optional, e.g. 1-1000)" });
+  const authIn = el("input", { placeholder: "authorization reference (ticket / ROE id)" });
+  const extChk = el("input", { type: "checkbox" });
+  const confirmChk = el("input", { type: "checkbox" });
+  const runBtn = el("button", { class: "btn-primary", onclick: submit }, "Run scan");
+  const formErr = el("p", { class: "form-error" });
+
+  function fillProfiles() {
+    const c = reconConnectors.find((x) => x.name === connSel.value);
+    profSel.innerHTML = "";
+    (c?.profiles || []).forEach((p) => profSel.appendChild(el("option", { value: p.name }, `${p.name} - ${p.desc}`)));
+    left.querySelector(".conn-hint").textContent = c ? `${c.desc}  (${c.target_kind}${c.needs_root ? ", needs root" : ""})` : "";
+    targetIn.placeholder = "target: " + (c?.target_kind || "host");
+  }
+  connSel.addEventListener("change", fillProfiles);
+
+  form.appendChild(el("label", {}, "Tool", connSel));
+  form.appendChild(el("div", { class: "conn-hint", style: "font-size:11.5px;color:var(--muted)" }));
+  form.appendChild(el("label", {}, "Profile", profSel));
+  form.appendChild(el("label", {}, "Target", targetIn));
+  form.appendChild(el("label", {}, "Ports", portsIn));
+  form.appendChild(el("label", {}, "Authorization reference", authIn));
+  form.appendChild(el("label", { style: "flex-direction:row;align-items:center;gap:8px" }, extChk, el("span", {}, "Allow external (public) target")));
+  form.appendChild(el("label", { style: "flex-direction:row;align-items:center;gap:8px" }, confirmChk, el("span", {}, "I am authorized to test this target")));
+  form.appendChild(runBtn);
+  form.appendChild(formErr);
+  if (!canScan) { form.querySelectorAll("input,select,button").forEach((e) => e.disabled = true); formErr.textContent = "Power or admin role required to run scans."; }
+  left.appendChild(form);
+
+  right.appendChild(el("h3", { style: "margin:0 0 10px;font-size:15px" }, "Scan history"));
+  const histWrap = el("div", {}, el("div", { class: "spinner" }, "Loading..."));
+  right.appendChild(histWrap);
+
+  try {
+    const r = await API.get("/api/recon/connectors");
+    reconConnectors = r.connectors || [];
+    connSel.innerHTML = "";
+    for (const c of reconConnectors) {
+      connSel.appendChild(el("option", { value: c.name, ...(c.available ? {} : { disabled: "" }) },
+        c.name + (c.available ? "" : " (not installed)") + "  · " + c.category));
+    }
+    const firstAvail = reconConnectors.find((c) => c.available);
+    if (firstAvail) connSel.value = firstAvail.name;
+    fillProfiles();
+  } catch (ex) { formErr.textContent = ex.message; }
+
+  async function submit() {
+    formErr.textContent = "";
+    try {
+      const r = await API.post("/api/recon/scan", {
+        connector: connSel.value, target: targetIn.value.trim(), profile: profSel.value,
+        ports: portsIn.value.trim(), authorization_ref: authIn.value.trim(),
+        allow_external: extChk.checked, confirmed: confirmChk.checked,
+      });
+      toast("Scan started");
+      loadHistory();
+    } catch (ex) { formErr.textContent = ex.message; }
+  }
+
+  async function loadHistory() {
+    try {
+      const r = await API.get("/api/recon/scans");
+      histWrap.innerHTML = "";
+      if (!r.scans || !r.scans.length) { histWrap.appendChild(el("div", { class: "empty" }, "No scans yet.")); return; }
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["Started", "Tool", "Target", "Profile", "Status", "Findings", ""].map((h) => el("th", {}, h))));
+      for (const sc of r.scans) {
+        t.appendChild(el("tr", {},
+          el("td", {}, fmtTime(sc.started_at)), el("td", {}, sc.connector), el("td", {}, sc.target),
+          el("td", {}, sc.profile), el("td", {}, statusBadge(sc.status)),
+          el("td", { class: "num" }, String(sc.finding_count)),
+          el("td", {}, el("button", { class: "btn-ghost btn-sm", onclick: () => viewFindings(sc) }, "View"))));
+      }
+      histWrap.appendChild(t);
+    } catch (ex) { histWrap.innerHTML = ""; histWrap.appendChild(el("div", { class: "empty" }, ex.message)); }
+  }
+
+  async function viewFindings(sc) {
+    const r = await API.get(`/api/recon/scans/${sc.id}/findings`);
+    const rows = r.findings || [];
+    const panel = el("div", { class: "results", style: "margin-top:12px" });
+    panel.appendChild(el("div", { class: "results-tabs" }, el("span", { class: "results-tab active" }, `${sc.connector} on ${sc.target} - ${rows.length} findings`)));
+    const body = el("div", { class: "results-body" });
+    if (!rows.length) body.appendChild(el("div", { class: "empty" }, sc.error || "No findings."));
+    else {
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["Severity", "Port", "Service", "Title", "Detail"].map((h) => el("th", {}, h))));
+      for (const f of rows) t.appendChild(el("tr", {},
+        el("td", {}, el("span", { class: "badge sev-" + (f.severity || "low") }, f.severity)),
+        el("td", {}, f.port || "-"), el("td", {}, f.service || "-"), el("td", {}, f.title), el("td", {}, f.detail || "")));
+      body.appendChild(t);
+    }
+    panel.appendChild(body);
+    const existing = right.querySelector(".results");
+    if (existing) existing.remove();
+    right.appendChild(panel);
+  }
+
+  loadHistory();
+  // Auto-refresh history while scans may be running.
+  const timer = setInterval(() => { if (location.hash === "#/recon") loadHistory(); else clearInterval(timer); }, 4000);
+}
+
+function statusBadge(s) {
+  const cls = s === "completed" ? "sev-low" : s === "failed" ? "sev-high" : "sev-medium";
+  return el("span", { class: "badge " + cls }, s);
 }
 
 // ===================== ADMIN =====================
