@@ -27,14 +27,74 @@ storage and the heavy lifting of search.
 - **Accounts**: built-in users with Argon2id password hashing, roles (admin,
   power, user), and revocable sessions. No external identity provider needed.
 - **Retention**: per-index retention in days, enforced by ClickHouse TTL.
+- **Recon**: run authorized security tools (nmap, masscan, nuclei, subfinder,
+  amass, tshark, and more) and native collectors (crt.sh, DNS, TLS, RDAP) and
+  pull their findings into search. Every scan is gated behind an authorization
+  reference and a permission confirmation.
+- **Network**: discover live devices on your LAN with IP, hostname, MAC,
+  vendor, and OS.
 
-## Quick start
+## Install (one command)
 
-With Docker:
+Daru runs on Linux, macOS, Raspberry Pi, Windows, and Android (Termux).
+
+**Linux, macOS, Raspberry Pi, Termux:**
+
+```bash
+git clone https://github.com/TYFSADIK/daru
+cd daru
+./install.sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/TYFSADIK/daru
+cd daru
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer builds Daru (installing a Go toolchain if you do not have one),
+starts ClickHouse with Docker if it is available, generates admin and database
+passwords into `~/.daru/daru.env`, and prints your login. Then:
+
+```bash
+set -a; . ~/.daru/daru.env; set +a
+daru serve
+```
+
+Open http://localhost:8088 and sign in as the `admin` user printed by the
+installer.
+
+### Platform notes
+
+- **Raspberry Pi**: use a 64-bit OS with 4 GB+ RAM; ClickHouse runs natively on
+  arm64.
+- **Android (Termux)**: the Daru binary runs, but ClickHouse does not run on
+  Android. Point Daru at a ClickHouse on another machine with
+  `DARU_CLICKHOUSE_URL=http://<host>:8123`.
+- **No Docker?** Install ClickHouse natively (its official installer is
+  `curl https://clickhouse.com/ | sh`), or point `DARU_CLICKHOUSE_URL` at an
+  existing instance.
+
+Optional security scanners for the recon features (nmap, masscan, nuclei, and
+so on) are installed separately and only with your consent:
+
+```bash
+./scripts/install-recon-tools.sh
+```
+
+### Prebuilt binaries
+
+Each release publishes static binaries for every platform (`make release`
+builds them locally into `dist/`). Download the one for your system, drop it on
+your `PATH`, and run `daru serve`.
+
+## Run with Docker Compose
 
 ```bash
 cd deploy
-# Edit the passwords in docker-compose.yml first.
+# Change the passwords first.
 docker compose up -d
 ```
 
