@@ -74,5 +74,38 @@ else
   exit 1
 fi
 
+# Several popular scanners (ProjectDiscovery's nuclei, httpx, subfinder, dnsx,
+# katana, and ffuf) ship as Go programs and are often not in the package
+# manager. Install them with `go install` when Go is present.
+if command -v go >/dev/null 2>&1; then
+  say "Installing Go-based scanners with go install"
+  GOBIN="${GOBIN:-$HOME/go/bin}"; export GOBIN
+  for spec in \
+    "nuclei:github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest" \
+    "httpx:github.com/projectdiscovery/httpx/cmd/httpx@latest" \
+    "subfinder:github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest" \
+    "dnsx:github.com/projectdiscovery/dnsx/cmd/dnsx@latest" \
+    "katana:github.com/projectdiscovery/katana/cmd/katana@latest" \
+    "naabu:github.com/projectdiscovery/naabu/v2/cmd/naabu@latest" \
+    "ffuf:github.com/ffuf/ffuf/v2@latest" \
+    "gobuster:github.com/OJ/gobuster/v3@latest" \
+    "amass:github.com/owasp-amass/amass/v4/...@master"
+  do
+    name=${spec%%:*}; pkg=${spec#*:}
+    if command -v "$name" >/dev/null 2>&1; then say "have $name"; continue; fi
+    say "go install $name"
+    go install "$pkg" 2>/dev/null || warn "skip $name (go install failed)"
+  done
+  case ":$PATH:" in *":$GOBIN:"*) : ;; *) warn "Add $GOBIN to your PATH to use the Go-based tools" ;; esac
+else
+  say "Go not found; skipping nuclei/httpx/subfinder/dnsx (install Go to get them)."
+fi
+
+# Offer the capability grant so raw-socket tools work without running as root.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "$(uname -s)" = "Linux" ] && [ -f "$SCRIPT_DIR/grant-capabilities.sh" ]; then
+  say "Granting raw-socket capability to scan/capture tools (so no root is needed)"
+  sh "$SCRIPT_DIR/grant-capabilities.sh" || warn "capability grant skipped; run scripts/grant-capabilities.sh later"
+fi
+
 say "Done. Tools that installed will show as available in Daru's Recon tab."
-say "Projects such as nuclei, httpx, subfinder, and amass may also be installed with 'go install' from their official repos."

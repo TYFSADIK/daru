@@ -36,6 +36,49 @@ func TestParseARP(t *testing.T) {
 	}
 }
 
+// Real arp-scan --quiet output, including its header and footer lines which
+// the parser must ignore.
+const sampleArpScan = `Interface: en0, type: EN10MB, MAC: aa:bb:cc:dd:ee:ff, IPv4: 192.168.2.100
+Starting arp-scan 1.10.0 with 256 hosts
+192.168.2.1	a0:39:f9:2c:51:b5	Sagemcom Broadband SAS
+192.168.2.12	44:61:32:60:65:28	ecobee inc.
+192.168.2.78	c8:e2:65:53:b4:7a	Intel Corporate
+192.168.2.90	3c:06:30:1a:2b:3c	(Unknown)
+
+12 packets received by filter, 0 packets dropped
+Ending arp-scan: 256 hosts scanned`
+
+func TestParseArpScan(t *testing.T) {
+	macs, vendors := parseArpScan(sampleArpScan)
+	if len(macs) != 4 {
+		t.Fatalf("expected 4 devices, got %d: %v", len(macs), macs)
+	}
+	if macs["192.168.2.1"] != "a0:39:f9:2c:51:b5" {
+		t.Errorf("gateway mac wrong: %q", macs["192.168.2.1"])
+	}
+	if vendors["192.168.2.12"] != "ecobee inc." {
+		t.Errorf("ecobee vendor wrong: %q", vendors["192.168.2.12"])
+	}
+	// Header MAC line must not be parsed as a device.
+	if _, ok := macs["192.168.2.100"]; ok {
+		t.Error("interface header line parsed as a device")
+	}
+	// "(Unknown)" vendor falls back to the prefix lookup in devicesFromScan.
+	_, net24, _ := net.ParseCIDR("192.168.2.0/24")
+	devices := devicesFromScan(macs, vendors, []*net.IPNet{net24},
+		map[string]string{"3C0630": "Apple, Inc."}, nil)
+	byIP := map[string]Finding{}
+	for _, d := range devices {
+		byIP[d.Target] = d
+	}
+	if byIP["192.168.2.90"].Fields["vendor"] != "Apple, Inc." {
+		t.Errorf("unknown vendor should fall back to prefix lookup, got %q", byIP["192.168.2.90"].Fields["vendor"])
+	}
+	if byIP["192.168.2.1"].Fields["vendor"] != "Sagemcom Broadband SAS" {
+		t.Errorf("arp-scan vendor should win, got %q", byIP["192.168.2.1"].Fields["vendor"])
+	}
+}
+
 func TestBuildDevices(t *testing.T) {
 	arp := parseARP(sampleARP)
 	_, net24, _ := net.ParseCIDR("192.168.2.0/24")

@@ -24,7 +24,7 @@ func init() {
 		AllowEmptyTarget: true,
 		Desc:             "Discover live devices on a local network (IP, MAC, vendor, hostname). Leave the target blank to scan your own network.",
 		Profiles: []Profile{
-			{"arp", "ARP cache plus a quick TCP sweep (no root needed)"},
+			{"arp", "arp-scan when available (finds every device), else ARP cache plus a TCP sweep"},
 			{"quick", "Sweep common ports to find more hosts"},
 		},
 		native: netDiscover,
@@ -49,34 +49,121 @@ func netDiscover(ctx context.Context, r Request) ([]Finding, error) {
 		nets = []*net.IPNet{n}
 	}
 
-	// Seed the ARP cache across every network with a quick TCP sweep.
-	var allHosts []string
 	for _, ipnet := range nets {
 		if ones, bits := ipnet.Mask.Size(); bits-ones > 16 {
 			return nil, fmt.Errorf("range %s is too large for discovery; use /16 or smaller", ipnet.String())
 		}
-		allHosts = append(allHosts, enumerateHosts(ipnet)...)
-	}
-	sweepHosts(ctx, allHosts)
-	select {
-	case <-ctx.Done():
-	case <-time.After(600 * time.Millisecond):
 	}
 
-	// Read the ARP table once; it holds every neighbor the host knows.
-	arp := readARPTable()
 	resolve := func(ip string) string { return reverseName(ctx, ip) }
-	findings := buildDevices(arp, nets, loadMACPrefixes(), resolve)
+	macs := map[string]string{}
+	vendorOverride := map[string]string{}
+
+	// Preferred path: arp-scan sends real ARP requests, so it finds every
+	// layer-2 device including silent ones that answer no TCP. It needs
+	// CAP_NET_RAW (see scripts/grant-capabilities.sh); if that is missing it
+	// errors and we fall back to the TCP sweep below.
+	if m, v, err := arpScan(ctx, nets); err == nil && len(m) > 0 {
+		for ip, mac := range m {
+			macs[ip] = mac
+		}
+		for ip, ven := range v {
+			vendorOverride[ip] = ven
+		}
+	}
+
+	// Fallback / supplement: seed the ARP cache with a quick TCP sweep, then
+	// read the OS ARP table. This needs no privileges but only finds hosts
+	// with an open port.
+	if len(macs) == 0 {
+		var allHosts []string
+		for _, ipnet := range nets {
+			allHosts = append(allHosts, enumerateHosts(ipnet)...)
+		}
+		sweepHosts(ctx, allHosts)
+		select {
+		case <-ctx.Done():
+		case <-time.After(600 * time.Millisecond):
+		}
+	}
+	for ip, mac := range readARPTable() {
+		if _, ok := macs[ip]; !ok {
+			macs[ip] = mac
+		}
+	}
+
+	findings := devicesFromScan(macs, vendorOverride, nets, loadMACPrefixes(), resolve)
 	if len(findings) == 0 {
-		return nil, fmt.Errorf("no devices answered; your OS ARP cache may be empty. Try again, or run the nmap discovery profile with elevated privileges")
+		return nil, fmt.Errorf("no devices found. Install arp-scan and grant it CAP_NET_RAW (sh scripts/grant-capabilities.sh), or try the nmap discovery profile")
 	}
 	return findings, nil
 }
+
+// arpScan runs arp-scan against each network and parses ip, mac, and vendor.
+// Returns an error if arp-scan is not installed or has no permission; callers
+// fall back to the sweep method.
+func arpScan(ctx context.Context, nets []*net.IPNet) (map[string]string, map[string]string, error) {
+	bin := firstExisting("arp-scan", "/usr/sbin/arp-scan", "/usr/bin/arp-scan", "/opt/homebrew/bin/arp-scan")
+	if _, err := exec.LookPath(bin); err != nil {
+		if _, statErr := os.Stat(bin); statErr != nil {
+			return nil, nil, fmt.Errorf("arp-scan not installed")
+		}
+	}
+	macs := map[string]string{}
+	vendors := map[string]string{}
+	var lastErr error
+	for _, n := range nets {
+		cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		out, err := exec.CommandContext(cctx, bin, "--quiet", "--ignoredups", n.String()).CombinedOutput()
+		cancel()
+		if err != nil && len(out) == 0 {
+			lastErr = fmt.Errorf("arp-scan on %s: %v", n.String(), err)
+			continue
+		}
+		m, v := parseArpScan(string(out))
+		for ip, mac := range m {
+			macs[ip] = mac
+		}
+		for ip, ven := range v {
+			vendors[ip] = ven
+		}
+	}
+	if len(macs) == 0 && lastErr != nil {
+		return nil, nil, lastErr
+	}
+	return macs, vendors, nil
+}
+
+// parseArpScan reads arp-scan output lines of the form "IP\tMAC\tVendor".
+func parseArpScan(text string) (map[string]string, map[string]string) {
+	macs := map[string]string{}
+	vendors := map[string]string{}
+	for _, m := range arpScanLineRe.FindAllStringSubmatch(text, -1) {
+		ip, mac, vendor := m[1], normalizeMAC(m[2]), strings.TrimSpace(m[3])
+		if mac == "" || mac == "ff:ff:ff:ff:ff:ff" || strings.HasPrefix(mac, "01:00:5e") {
+			continue
+		}
+		macs[ip] = mac
+		if vendor != "" {
+			vendors[ip] = vendor
+		}
+	}
+	return macs, vendors
+}
+
+var arpScanLineRe = regexp.MustCompile(`(?m)^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F:]{17})\s*(.*)$`)
 
 // buildDevices is the pure core of discovery: it turns an ARP map into device
 // findings for the in-scope networks. Separated from the exec call so it can
 // be tested without touching the system.
 func buildDevices(arp map[string]string, nets []*net.IPNet, vendors map[string]string, resolve func(string) string) []Finding {
+	return devicesFromScan(arp, nil, nets, vendors, resolve)
+}
+
+// devicesFromScan builds device findings from an ip->mac map, preferring a
+// per-ip vendor override (such as the name arp-scan reports) over the
+// nmap-prefix lookup.
+func devicesFromScan(arp, vendorOverride map[string]string, nets []*net.IPNet, vendors map[string]string, resolve func(string) string) []Finding {
 	inScope := func(ipStr string) bool {
 		ip := net.ParseIP(ipStr)
 		for _, n := range nets {
@@ -93,7 +180,10 @@ func buildDevices(arp map[string]string, nets []*net.IPNet, vendors map[string]s
 			continue
 		}
 		seen[ip] = true
-		vendor := vendorFor(mac, vendors)
+		vendor := vendorOverride[ip]
+		if vendor == "" || vendor == "(Unknown)" {
+			vendor = vendorFor(mac, vendors)
+		}
 		hostname := ""
 		if resolve != nil {
 			hostname = resolve(ip)

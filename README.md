@@ -182,6 +182,26 @@ This installs discovery, vulnerability, web, DNS/OSINT, and traffic-analysis
 tools. It deliberately installs no denial-of-service tools, no mass
 auto-exploiters, and no anti-virus evasion tooling.
 
+### Network discovery and privileges
+
+The **Network** tab finds live devices on your LAN. For a complete picture
+(including silent devices like phones, printers, and IoT that answer no TCP),
+Daru uses `arp-scan`, which sends real ARP requests. Without it, Daru falls
+back to a TCP sweep plus the OS ARP table, which only finds hosts with an open
+port.
+
+`arp-scan`, `nmap` SYN/ARP scans, `masscan`, and packet capture need the
+`CAP_NET_RAW` capability. The right way to grant it is per-binary file
+capabilities, **not** running Daru as root. Do that once with:
+
+```bash
+sh scripts/grant-capabilities.sh
+```
+
+This grants only the raw-socket capability to those specific tools, so they
+work for your normal user while Daru itself keeps running unprivileged. The
+`--with-tools` installer runs this step for you.
+
 ## Run with Docker Compose
 
 ```bash
