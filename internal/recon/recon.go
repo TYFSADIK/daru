@@ -125,7 +125,15 @@ func extraBinDirs() []string {
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, "go", "bin"), filepath.Join(home, ".local", "bin"))
 	}
+	// When running under sudo (HOME is /root), also look in the invoking
+	// user's home, so tools installed as that user with go install or pipx are
+	// still found. SUDO_USER names the original account.
+	if u := os.Getenv("SUDO_USER"); u != "" {
+		uh := filepath.Join("/home", u)
+		dirs = append(dirs, filepath.Join(uh, "go", "bin"), filepath.Join(uh, ".local", "bin"))
+	}
 	dirs = append(dirs,
+		"/root/go/bin", "/root/.local/bin",
 		"/usr/local/bin", "/usr/local/sbin", "/usr/sbin", "/sbin",
 		"/snap/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin")
 	return dirs

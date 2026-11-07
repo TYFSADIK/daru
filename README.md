@@ -202,6 +202,31 @@ This grants only the raw-socket capability to those specific tools, so they
 work for your normal user while Daru itself keeps running unprivileged. The
 `--with-tools` installer runs this step for you.
 
+#### Local root mode
+
+On a private box that no one else can reach, you may prefer to just run
+everything as root so every tool works with no per-tool setup:
+
+```bash
+sh scripts/serve-root.sh
+```
+
+This loads `~/.daru/daru.env` and runs `daru serve` under `sudo -E`. Because
+`SUDO_USER` is preserved, Daru still finds tools you installed in your own
+`~/go/bin` and `~/.local/bin`.
+
+Only do this on a local, non-public instance. Running as root means anyone who
+can reach this Daru can run root commands through it, so keep it bound to
+localhost or a trusted LAN:
+
+```bash
+# in ~/.daru/daru.env, to accept only local connections:
+DARU_LISTEN=127.0.0.1:8088
+```
+
+For a shared or internet-exposed instance, use `grant-capabilities.sh` above
+and run Daru as a normal user instead.
+
 ## Run with Docker Compose
 
 ```bash
