@@ -165,6 +165,15 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := sessionFrom(r.Context()).Username
+	if req.DefaultIndex == "" {
+		req.DefaultIndex = "main"
+	}
+	// Data sent with this token lands in its index, and only registered
+	// indexes are searched and swept for retention.
+	if err := s.Store.RegisterIndex(r.Context(), req.DefaultIndex, 90); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid index name")
+		return
+	}
 	token, err := s.Auth.CreateIngestToken(r.Context(), req.Name, req.DefaultIndex, owner)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "could not create token")

@@ -274,7 +274,7 @@ func TestParseHostListCap(t *testing.T) {
 	var b strings.Builder
 	for i := 0; i < 6000; i++ {
 		b.WriteString("h")
-		b.WriteString(fmt.Sprintf("%d", i))
+		fmt.Fprintf(&b, "%d", i)
 		b.WriteString(".example.com\n")
 	}
 	fs := parseHostList([]byte(b.String()), Request{Target: "example.com"})

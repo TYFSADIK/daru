@@ -237,14 +237,14 @@ func builtinWordlist() (string, error) {
 		home = os.TempDir()
 	}
 	dir := filepath.Join(home, ".daru", "wordlists")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("could not create wordlist dir: %w", err)
 	}
 	path := filepath.Join(dir, "common.txt")
 	if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
 		return path, nil
 	}
-	if err := os.WriteFile(path, []byte(commonPaths), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(commonPaths), 0o600); err != nil {
 		return "", fmt.Errorf("could not write built-in wordlist: %w", err)
 	}
 	return path, nil

@@ -289,6 +289,58 @@ authenticated the request. Verified live on ClickHouse 25.8: cookie and
 Bearer logout both end the session, a disabled account cannot sign in and
 its old session is refused, and a restart no longer tries to bootstrap.
 
+## Follow up, 2026-11-13 (6): CI, found while retaking README screenshots
+
+CI failed after the Dependabot bumps; retaking the screenshots against a
+demo instance then turned up product bugs that the tests did not catch.
+
+CI:
+- Windows cross-build: `recon.go` used `syscall.Stat_t`, which only exists
+  on Unix. The owner lookup moved to `owner_unix.go` / `owner_windows.go`;
+  on Windows no binary is trusted for root execution.
+- golangci-lint-action v9 runs only golangci-lint v2. Pinned `latest`,
+  added `.golangci.yml`, and fixed what it found: pcap findings and scan
+  completion were dropped silently on a store error, the OIDC JWK EC key
+  used the deprecated `IsOnCurve` (now `ecdsa.ParseUncompressedPublicKey`,
+  which also checks the point), and six unused functions were removed.
+- govulncheck: `scripts/govulncheck.sh` fails on any reachable
+  vulnerability not reviewed in `.govulncheck-allow` (only GO-2026-6909,
+  see below), and notes a stale entry.
+- gosec: 0 issues. Real fixes: unchecked `Close` after writing the pcap
+  upload and the tools update script (a failed flush left a truncated
+  file), logout cookie now matches the session cookie's Secure/SameSite,
+  wordlist dir and file are owner-only, and a dead RNG fallback was
+  removed (crypto/rand.Read cannot fail since Go 1.24). The other 37 are
+  `#nosec` with the reason on the line (argv subprocesses in the tool
+  runner, tls-cert must skip verification, TOTP is HMAC-SHA1 by RFC 6238).
+- The compose config check now gets throwaway passwords.
+
+Product bugs:
+- Data in an index that was never registered (any index other than main,
+  recon, network, unless an admin created it) was stored but invisible to
+  search, and outside the retention sweep. Creating an ingest token now
+  registers its index, and startup registers any index found in events.
+- Every restart reset main/recon/network retention to the defaults, so a
+  custom retention (say 365 days) was cut back to 90 and the next sweep
+  deleted the older data. Startup now registers defaults only when missing.
+- The v0.2.0 CSP (`style-src 'self'`) blocked every inline style the UI
+  sets, so charts, bars, and many layouts rendered as plain text. `el()`
+  now sets styles through the CSSOM, which the CSP allows; the strict
+  policy stays.
+- Dashboard panels saved as Chart rendered as tables.
+- PCAP upload: the handler's deferred cleanup deleted the upload while the
+  analysis goroutine was still reading it; the goroutine now owns the
+  folder. On macOS every upload was refused, because the allowlisted temp
+  directory was not resolved through the /var -> /private/var symlink.
+  PCAP findings recorded the server's temp path as their host; they now
+  use the uploaded file name.
+- Scheduled scans that never ran showed "," as their last run; now "never".
+
+Verified on a demo instance (ClickHouse 25.8): a 3 packet pcap gives 3
+findings and its folder is removed; main keeps 365 days across a restart;
+index=web finds the data; no CSP violations in the console. Tests, vet,
+golangci-lint v2, gosec, govulncheck, and all 7 cross builds pass.
+
 ## Remaining honest limits
 
 - govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on
@@ -301,7 +353,8 @@ its old session is refused, and a restart no longer tries to bootstrap.
     assertion namespace (a foreign-namespace NameID is not read). Both
     described bugs are absent, so this is a database lag, not a live issue.
     Daru's panic recovery would contain a panic to one 500 response anyway.
-    Re-run govulncheck after the next vulndb update; it should clear.
+    It is listed in .govulncheck-allow so CI passes; remove the entry once the
+    vulndb update clears it (scripts/govulncheck.sh says when).
   - GO-2026-5932, golang.org/x/crypto/openpgp is unmaintained: a module
     level finding only. Daru does not import openpgp, so it is not
     reachable. It clears with the next tagged x/crypto release.

@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -258,18 +257,18 @@ func (c *Connector) resolve() string {
 // non-root user, is not. Used when Daru runs as root, so a binary planted
 // in a user-writable directory is never executed with privilege.
 func isRootOwnedDir(dir string) bool {
-	fi, err := os.Stat(dir)
+	fi, err := os.Stat(dir) // #nosec G703 -- dir comes from PATH and well-known tool dirs, and is only stat'ed
 	if err != nil || !fi.IsDir() {
 		return false
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
+	uid, gid, ok := fileOwner(fi)
 	if !ok {
 		return false
 	}
-	if st.Uid != 0 || fi.Mode().Perm()&0o002 != 0 {
+	if uid != 0 || fi.Mode().Perm()&0o002 != 0 {
 		return false
 	}
-	if fi.Mode().Perm()&0o020 != 0 && st.Gid != 0 {
+	if fi.Mode().Perm()&0o020 != 0 && gid != 0 {
 		return false
 	}
 	return true
@@ -331,14 +330,14 @@ func binarySafeForRoot(path string) bool {
 	if err != nil || fi.IsDir() {
 		return false
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
+	uid, gid, ok := fileOwner(fi)
 	if !ok {
 		return false
 	}
-	if st.Uid != 0 || fi.Mode().Perm()&0o002 != 0 {
+	if uid != 0 || fi.Mode().Perm()&0o002 != 0 {
 		return false
 	}
-	if fi.Mode().Perm()&0o020 != 0 && st.Gid != 0 {
+	if fi.Mode().Perm()&0o020 != 0 && gid != 0 {
 		return false
 	}
 	return true
@@ -401,7 +400,7 @@ func verifyHelpContains(probeArg string, wanted ...string) func(string) bool {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		out, _ := exec.CommandContext(ctx, path, probeArg).CombinedOutput()
+		out, _ := exec.CommandContext(ctx, path, probeArg).CombinedOutput() // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		low := strings.ToLower(string(out))
 		ok := false
 		for _, w := range wanted {

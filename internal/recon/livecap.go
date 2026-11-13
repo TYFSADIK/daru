@@ -183,7 +183,7 @@ func dumpcapRunnable() bool {
 	bin := firstExisting("dumpcap", "/usr/bin/dumpcap", "/usr/sbin/dumpcap", "/opt/homebrew/bin/dumpcap")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-D").CombinedOutput()
+	out, err := exec.CommandContext(ctx, bin, "-D").CombinedOutput() // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 	if err != nil {
 		return false
 	}
@@ -229,8 +229,8 @@ func StartCapture(parent context.Context, f CaptureFilter) (*CaptureSession, err
 		for _, fld := range liveFields {
 			readArgs = append(readArgs, "-e", fld)
 		}
-		c1 := exec.CommandContext(ctx, tcpdumpBin, capArgs...)
-		c2 := exec.CommandContext(ctx, bin, readArgs...)
+		c1 := exec.CommandContext(ctx, tcpdumpBin, capArgs...) // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
+		c2 := exec.CommandContext(ctx, bin, readArgs...)       // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		pr, pw := io.Pipe()
 		c1.Stdout = pw
 		c2.Stdin = pr
@@ -251,7 +251,7 @@ func StartCapture(parent context.Context, f CaptureFilter) (*CaptureSession, err
 			_ = c2.Process.Kill()
 			return nil, fmt.Errorf("could not start capture: %w", err)
 		}
-		waitFn = func() { c1.Wait(); pw.Close(); c2.Wait() }
+		waitFn = func() { _ = c1.Wait(); _ = pw.Close(); _ = c2.Wait() } // failures surface via errText
 		errText = eb.String
 	} else {
 		var args []string
@@ -271,7 +271,7 @@ func StartCapture(parent context.Context, f CaptureFilter) (*CaptureSession, err
 				args = append(args, f.BPF)
 			}
 		}
-		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		so, err := cmd.StdoutPipe()
 		if err != nil {
 			cancel()
@@ -284,7 +284,7 @@ func StartCapture(parent context.Context, f CaptureFilter) (*CaptureSession, err
 			cancel()
 			return nil, fmt.Errorf("could not start capture: %w (needs capture permission; run scripts/grant-capabilities.sh)", err)
 		}
-		waitFn = func() { cmd.Wait() }
+		waitFn = func() { _ = cmd.Wait() } // failures surface via errText
 		errText = eb.String
 	}
 

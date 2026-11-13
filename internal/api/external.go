@@ -78,7 +78,7 @@ func (s *Server) startSession(w http.ResponseWriter, u *auth.User) error {
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows DARU_SECURE_COOKIES (plain HTTP on localhost by default)
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: s.Secure,
 		SameSite: http.SameSiteLaxMode, MaxAge: int((12 * time.Hour).Seconds()),
 	})

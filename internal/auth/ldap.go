@@ -116,7 +116,7 @@ func (a *LDAPAuthenticator) dial() (*ldap.Conn, error) {
 	conn.SetTimeout(a.cfg.Timeout)
 	if a.cfg.StartTLS {
 		if err := conn.StartTLS(a.tls); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("ldap starttls: %w", err)
 		}
 	}

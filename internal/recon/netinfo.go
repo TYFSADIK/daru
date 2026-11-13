@@ -81,7 +81,7 @@ func enrichWiFi(ctx context.Context, info *InterfaceInfo) {
 	bin := firstExisting("iw", "/usr/sbin/iw", "/sbin/iw", "/usr/bin/iw")
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, bin, "dev", info.Name, "link").Output()
+	out, err := exec.CommandContext(cctx, bin, "dev", info.Name, "link").Output() // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 	if err != nil {
 		return
 	}
@@ -192,7 +192,7 @@ func interfaceAddrs(name string) []string {
 }
 
 func readFile(path string) string {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- path comes from a fixed list or /sys, never from a request
 	if err != nil {
 		return ""
 	}

@@ -6,7 +6,7 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- RFC 6238 TOTP uses HMAC-SHA1, which authenticator apps expect
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base32"
@@ -240,7 +240,7 @@ func VerifyPassword(password, encoded string) bool {
 	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false
 	}
-	got := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, uint32(len(want)))
+	got := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, uint32(len(want))) // #nosec G115 -- len(want) is checked to be 16..64 above
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
@@ -307,9 +307,9 @@ func VerifyTOTP(secret, code string, now time.Time) bool {
 	if _, err := strconv.Atoi(code); err != nil {
 		return false
 	}
-	step := uint64(now.Unix() / 30)
+	step := uint64(now.Unix() / 30) // #nosec G115 -- Unix time / 30 is positive for any real clock
 	for _, delta := range []int64{-1, 0, 1} {
-		want, err := totpCode(secret, uint64(int64(step)+delta))
+		want, err := totpCode(secret, uint64(int64(step)+delta)) // #nosec G115 -- Unix time / 30 is positive for any real clock
 		if err != nil {
 			return false
 		}

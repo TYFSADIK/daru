@@ -337,11 +337,13 @@ func (p *OIDCProvider) key(ctx context.Context, kid string) (crypto.PublicKey, e
 			}
 			x, err1 := base64.RawURLEncoding.DecodeString(k.X)
 			y, err2 := base64.RawURLEncoding.DecodeString(k.Y)
-			if err1 != nil || err2 != nil {
+			// RFC 7518: P-256 coordinates are exactly 32 bytes each.
+			if err1 != nil || err2 != nil || len(x) != 32 || len(y) != 32 {
 				continue
 			}
-			pub := &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(x), Y: new(big.Int).SetBytes(y)}
-			if !pub.Curve.IsOnCurve(pub.X, pub.Y) {
+			// Rejects points that are not on the curve.
+			pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, x...), y...))
+			if err != nil {
 				continue
 			}
 			keys[k.Kid] = pub

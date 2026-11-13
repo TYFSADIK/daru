@@ -67,7 +67,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginLimiter.recordSuccess(key)
 	s.audit(r, "login.success", req.Username)
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows DARU_SECURE_COOKIES (plain HTTP on localhost by default)
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
@@ -94,8 +94,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	} else if c, err := r.Cookie(sessionCookie); err == nil {
 		_ = s.Auth.Logout(r.Context(), c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows DARU_SECURE_COOKIES (plain HTTP on localhost by default)
 		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
+		Secure: s.Secure, SameSite: http.SameSiteLaxMode,
 	})
 	if username != "" {
 		s.audit(r, "logout", username)

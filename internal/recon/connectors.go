@@ -21,7 +21,7 @@ func zmapRouteParams(target string) (iface, src, gwmac string) {
 	ipBin := firstExisting("ip", "/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, ipBin, "route", "get", ip).Output()
+	out, err := exec.CommandContext(ctx, ipBin, "route", "get", ip).Output() // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 	if err != nil {
 		return "", "", ""
 	}
@@ -46,7 +46,7 @@ func zmapRouteParams(target string) (iface, src, gwmac string) {
 	if gw != "" {
 		nctx, ncancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer ncancel()
-		if nb, err := exec.CommandContext(nctx, ipBin, "neigh", "show", gw).Output(); err == nil {
+		if nb, err := exec.CommandContext(nctx, ipBin, "neigh", "show", gw).Output(); err == nil { // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 			if m := macRe.FindString(string(nb)); m != "" {
 				gwmac = m
 			}

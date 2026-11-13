@@ -317,7 +317,7 @@ func useradd(log *slog.Logger, args []string) {
 	password := fs.String("p", "", "password")
 	role := fs.String("role", "user", "role: admin, power, or user")
 	email := fs.String("email", "", "email (optional)")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: a bad flag exits before returning
 	if *username == "" || *password == "" {
 		fatal(log, "useradd needs -u and -p", nil)
 	}
@@ -460,7 +460,9 @@ func serve(log *slog.Logger) {
 	log.Info("shutting down")
 	shutdownCtx, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
-	httpServer.Shutdown(shutdownCtx)
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Warn("shutdown did not finish cleanly", "err", err)
+	}
 }
 
 // externalPolicy reads PREFIX_AUTO_CREATE, PREFIX_DEFAULT_ROLE and
@@ -639,9 +641,13 @@ func bootstrapAdmin(ctx context.Context, am *auth.Manager, st *store.Store, cfg 
 		name      string
 		retention uint32
 	}{{"main", 90}, {"recon", 90}, {"network", 7}} {
-		if err := st.EnsureIndex(ctx, ix.name, ix.retention); err != nil {
-			log.Warn("could not ensure index", "index", ix.name, "err", err)
+		// Only when missing: an admin's retention survives restarts.
+		if err := st.RegisterIndex(ctx, ix.name, ix.retention); err != nil {
+			log.Warn("could not register index", "index", ix.name, "err", err)
 		}
+	}
+	if err := st.RegisterEventIndexes(ctx); err != nil {
+		log.Warn("could not register indexes found in events", "err", err)
 	}
 	count, err := am.CountUsers(ctx)
 	if err != nil {

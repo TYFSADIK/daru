@@ -423,14 +423,9 @@ func mergeFields(a, b map[string]string) map[string]string {
 // newUUID returns a random RFC 4122 v4 UUID string.
 func newUUID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// A failed RNG must not produce a predictable id silently; mix
-		// in the current time so the result is at least unique.
-		n := time.Now().UnixNano()
-		for i := 0; i < 8; i++ {
-			b[i] ^= byte(n >> (8 * uint(i)))
-		}
-	}
+	// Since Go 1.24 crypto/rand.Read never returns an error: it crashes the
+	// program rather than hand back predictable bytes.
+	_, _ = rand.Read(b[:])
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])

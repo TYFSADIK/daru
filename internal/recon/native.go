@@ -114,7 +114,7 @@ func crtshCollect(ctx context.Context, r Request) ([]Finding, error) {
 func dnsxRun(ctx context.Context, r Request) ([]Finding, error) {
 	if bin := resolveBinary("dnsx"); bin != "" {
 		cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		cmd := exec.CommandContext(cctx, bin, "-json", "-silent", "-a", "-aaaa", "-cname", "-mx", "-ns", "-txt", "-resp")
+		cmd := exec.CommandContext(cctx, bin, "-json", "-silent", "-a", "-aaaa", "-cname", "-mx", "-ns", "-txt", "-resp") // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		cmd.Stdin = strings.NewReader(r.Target + "\n")
 		var buf bytes.Buffer
 		cmd.Stdout = capWriter(&buf, MaxToolOutputBytes)
@@ -184,7 +184,7 @@ func tlsCollect(ctx context.Context, r Request) ([]Finding, error) {
 		port = r.Ports
 	}
 	d := &net.Dialer{Timeout: 15 * time.Second}
-	conn, err := tls.DialWithDialer(d, "tcp", net.JoinHostPort(host, port), &tls.Config{InsecureSkipVerify: true, ServerName: host})
+	conn, err := tls.DialWithDialer(d, "tcp", net.JoinHostPort(host, port), &tls.Config{InsecureSkipVerify: true, ServerName: host}) // #nosec G402 -- tls-cert must accept invalid certificates in order to report on them
 	if err != nil {
 		return nil, fmt.Errorf("TLS connect failed: %w", err)
 	}

@@ -115,7 +115,7 @@ func arpScan(ctx context.Context, nets []*net.IPNet) (map[string]string, map[str
 	var lastErr error
 	for _, n := range nets {
 		cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-		cmd := exec.CommandContext(cctx, bin, "--quiet", "--ignoredups", n.String())
+		cmd := exec.CommandContext(cctx, bin, "--quiet", "--ignoredups", n.String()) // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		var buf bytes.Buffer
 		cmd.Stdout = capWriter(&buf, MaxToolOutputBytes)
 		cmd.Stderr = capWriter(&buf, MaxToolOutputBytes)
@@ -294,7 +294,9 @@ func isLocalMAC(mac string) bool {
 		return false
 	}
 	var b int
-	fmt.Sscanf(mac[:2], "%x", &b)
+	if _, err := fmt.Sscanf(mac[:2], "%x", &b); err != nil {
+		return false
+	}
 	return b&0x02 != 0
 }
 
@@ -390,7 +392,7 @@ func sweepHosts(ctx context.Context, hosts []string) {
 				d := net.Dialer{Timeout: 350 * time.Millisecond}
 				conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, p))
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					return
 				}
 			}
@@ -418,9 +420,9 @@ func readARPTable() map[string]string {
 	// does not include /usr/sbin.
 	arpBin := firstExisting("arp", "/usr/sbin/arp", "/sbin/arp", "/usr/bin/arp")
 	var text string
-	if b, err := exec.Command(arpBin, "-a", "-n").Output(); err == nil && len(b) > 0 {
+	if b, err := exec.Command(arpBin, "-a", "-n").Output(); err == nil && len(b) > 0 { // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		text = string(b)
-	} else if b, err := exec.Command(arpBin, "-a").Output(); err == nil {
+	} else if b, err := exec.Command(arpBin, "-a").Output(); err == nil { // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 		text = string(b)
 	}
 	for ip, mac := range parseARP(text) {
@@ -428,7 +430,7 @@ func readARPTable() map[string]string {
 	}
 	if len(out) == 0 {
 		ipBin := firstExisting("ip", "/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip")
-		if b, err := exec.Command(ipBin, "neigh").Output(); err == nil {
+		if b, err := exec.Command(ipBin, "neigh").Output(); err == nil { // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 			sc := bufio.NewScanner(strings.NewReader(string(b)))
 			for sc.Scan() {
 				f := strings.Fields(sc.Text())
@@ -479,7 +481,7 @@ func loadMACPrefixes() map[string]string {
 			"/usr/local/share/nmap/nmap-mac-prefixes",
 		}
 		for _, p := range paths {
-			f, err := os.Open(p)
+			f, err := os.Open(p) // #nosec G304 -- path comes from a fixed list or /sys, never from a request
 			if err != nil {
 				continue
 			}
@@ -493,7 +495,7 @@ func loadMACPrefixes() map[string]string {
 					macPrefixes[strings.ToUpper(line[:6])] = strings.TrimSpace(line[i+1:])
 				}
 			}
-			f.Close()
+			_ = f.Close()
 			break
 		}
 	})

@@ -450,11 +450,6 @@ func ValidateActions(raw string) error {
 	return err
 }
 
-func parseActions(raw string) (severity string, actions map[string]bool) {
-	cfg, _ := ParseActions(raw)
-	return cfg.Severity, cfg.Actions
-}
-
 func orDefault(v, def string) string {
 	if v == "" {
 		return def

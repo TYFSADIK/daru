@@ -239,46 +239,6 @@ func parseNucleiJSONL(out []byte, r Request) []Finding {
 
 // --- generic JSON lines ---
 
-func parseJSONLines(out []byte, r Request) []Finding {
-	var findings []Finding
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
-			continue
-		}
-		title := firstStr(obj, "url", "host", "input", "name", "domain", "fqdn", "target", "address")
-		if title == "" {
-			title = line
-			if len(title) > 160 {
-				title = title[:160]
-			}
-		}
-		fields := map[string]string{}
-		for k, v := range obj {
-			switch vv := v.(type) {
-			case string:
-				fields[k] = vv
-			case float64:
-				fields[k] = fmt.Sprintf("%v", vv)
-			case bool:
-				fields[k] = fmt.Sprintf("%v", vv)
-			}
-			if len(fields) >= 40 {
-				break
-			}
-		}
-		findings = append(findings, Finding{Title: title, Severity: "info", Target: r.Target, Fields: fields})
-	}
-	if len(findings) == 0 {
-		return genericParse(out, r)
-	}
-	return findings
-}
-
 // parseDnsx expands dnsx's merged JSON (one object per name, each record type an
 // array) into one finding per DNS record, so an A/AAAA/CNAME/MX/NS/TXT sweep is
 // fully enumerated instead of collapsed into a single host entry. Returns nil
@@ -1378,7 +1338,7 @@ func parseTheHarvester(out []byte, r Request) []Finding {
 				if net.ParseIP(v) != nil {
 					kind = "ip"
 				}
-				findings = append(findings, Finding{Title: strings.Title(kind) + ": " + v, Severity: "info", Target: r.Target, Service: "osint",
+				findings = append(findings, Finding{Title: strings.ToUpper(kind[:1]) + kind[1:] + ": " + v, Severity: "info", Target: r.Target, Service: "osint",
 					Fields: map[string]string{kind: v}})
 			}
 		}
@@ -1494,7 +1454,7 @@ func parseSnmpwalk(out []byte, r Request) []Finding {
 		}
 		oid, val := m[1], strings.Trim(strings.TrimSpace(m[2]), `"`)
 		label := snmpLabel(oid)
-		title := val
+		var title string
 		sev := "info"
 		if label != "" {
 			title = label + ": " + val

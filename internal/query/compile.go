@@ -51,11 +51,6 @@ type relation struct {
 
 const mapColumn = "fields"
 
-var builtinCols = map[string]bool{
-	"_time": true, "_raw": true, "host": true, "source": true,
-	"sourcetype": true, "index": true, "_id": true,
-}
-
 // Compile turns a pipeline into one ClickHouse query.
 func Compile(p *Pipeline, opt Options) (*Compiled, error) {
 	if opt.Table == "" {
@@ -255,15 +250,6 @@ func cloneCols(rel *relation) (map[string]bool, []string) {
 func wrapWhere(rel *relation, pred string) *relation {
 	nr := *rel
 	nr.sql = fmt.Sprintf("SELECT * FROM (%s) WHERE %s", rel.sql, pred)
-	return &nr
-}
-
-func wrapRaw(rel *relation, sql string, keepOrder bool) *relation {
-	nr := *rel
-	nr.sql = sql
-	if !keepOrder {
-		nr.ordered = false
-	}
 	return &nr
 }
 

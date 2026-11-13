@@ -432,7 +432,7 @@ func roleAtLeast(have, min string) bool { return roleRank[have] >= roleRank[min]
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) // headers are sent; a write error means the client left
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

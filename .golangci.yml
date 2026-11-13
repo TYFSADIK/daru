@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  # The standard set: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  settings:
+    staticcheck:
+      checks:
+        # staticcheck's default set, minus one style suggestion that would
+        # rewrite readable conditions without fixing anything.
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001 # apply De Morgan's law
+  exclusions:
+    presets:
+      # Unchecked Close, Fprint, os.Remove, and similar calls where the
+      # error has nowhere useful to go.
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # Test helpers write canned responses and fixtures; a failure there
+      # shows up as a failing assertion.
+      - path: _test\.go
+        linters: [errcheck]

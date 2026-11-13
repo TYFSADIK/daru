@@ -214,7 +214,7 @@ func parseHECTime(s string) (time.Time, error) {
 	if f < 0 || f >= 1e20 {
 		return time.Time{}, fmt.Errorf("HEC time %q is out of range", s)
 	}
-	divisor := 1.0
+	var divisor float64
 	switch {
 	case f < 1e11:
 		divisor = 1

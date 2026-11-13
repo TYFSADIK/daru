@@ -61,17 +61,20 @@ func (s *Server) handleUpdateTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := f.Name()
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 	if _, err := f.Write(updateToolsScript); err != nil {
-		f.Close()
+		_ = f.Close()
 		writeError(w, http.StatusInternalServerError, "could not write update script")
 		return
 	}
-	f.Close()
+	if err := f.Close(); err != nil { // a failed flush would run a partial script
+		writeError(w, http.StatusInternalServerError, "could not write update script")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", path)
+	cmd := exec.CommandContext(ctx, "sh", path) // #nosec G204 -- path is a CreateTemp file holding the embedded update script
 	out, runErr := cmd.CombinedOutput()
 	if len(out) > 512<<10 {
 		out = out[len(out)-(512<<10):]

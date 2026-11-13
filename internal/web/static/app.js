@@ -72,6 +72,9 @@ const el = (tag, attrs = {}, ...kids) => {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") n.className = v;
+    // The CSP (style-src 'self') blocks style attributes, but not styles
+    // set through the CSSOM, so inline styles go through n.style.
+    else if (k === "style") n.style.cssText = v;
     else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v);
     else if (v !== null && v !== undefined) n.setAttribute(k, v);
   }
@@ -604,7 +607,12 @@ async function openDashboard(id) {
       const card = el("div", { class: "card" }, el("h3", {}, panel.title || "Panel"), el("div", { class: "spinner" }, "..."));
       grid.appendChild(card);
       API.post("/api/search", { query: panel.query, earliest: panel.earliest || "-24h", latest: "now", max_rows: 200 })
-        .then((r) => { card.lastChild.replaceWith(panel.type === "table" || r.kind !== "events" ? renderTable(r) : renderEvents(r)); })
+        .then((r) => {
+          // "Chart" panels (type viz) chart any aggregate; raw events stay a list.
+          const body = r.kind === "events" ? (panel.type === "table" ? renderTable(r) : renderEvents(r))
+            : panel.type === "table" ? renderTable(r) : renderViz(r);
+          card.lastChild.replaceWith(body);
+        })
         .catch((ex) => { card.lastChild.replaceWith(el("div", { class: "empty" }, ex.message)); });
     }
     if (!(def.panels || []).length) grid.appendChild(el("div", { class: "empty" }, "This dashboard has no panels."));
@@ -1026,7 +1034,7 @@ async function renderRecon(view) {
       for (const sc of list) {
         t.appendChild(el("tr", {},
           el("td", {}, sc.connector), el("td", {}, sc.target || "local"), el("td", {}, sc.cron),
-          el("td", {}, sc.last_run && !sc.last_run.startsWith("1970") && !sc.last_run.startsWith("0000") ? fmtTime(sc.last_run) : ","),
+          el("td", {}, sc.last_run && !sc.last_run.startsWith("1970") && !sc.last_run.startsWith("0000") ? fmtTime(sc.last_run) : "never"),
           el("td", {}, el("button", { class: "btn-ghost btn-sm btn-danger", onclick: async () => { if (await confirmDialog("Delete scheduled scan " + sc.connector + " on " + (sc.target || "local") + "?")) { await API.del("/api/recon/schedules/" + sc.id); loadSchedules(wrap); } } }, "Delete"))));
       }
       wrap.appendChild(t);

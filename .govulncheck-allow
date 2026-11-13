@@ -1,0 +1,9 @@
+# Reviewed govulncheck findings that scripts/govulncheck.sh lets through.
+# Format: <ID>  <reason>. Re-check each entry when the vulndb updates.
+
+# crewjam/saml v0.6.3 (marked "fixed in: N/A"). Checked 2026-11-13 in the
+# v0.6.3 source: Assertion.Issuer is a value, not a pointer, so the nil
+# dereference cannot happen, and Subject.NameID is namespace-tagged, so a
+# foreign NameID is not read. Both bugs the advisory describes are absent;
+# the advisory text itself says "through v0.5.1". Details in FIXLOG.md.
+GO-2026-6909  crewjam/saml v0.6.3 not affected, see FIXLOG.md "Remaining honest limits"

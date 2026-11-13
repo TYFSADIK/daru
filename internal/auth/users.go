@@ -288,7 +288,7 @@ func (m *Manager) Authenticate(ctx context.Context, username, password string) (
 	u, hash, _, _, err := m.getFull(ctx, username)
 	if err != nil {
 		// Hash a throwaway password so timing does not reveal missing users.
-		HashPassword("not-a-real-password")
+		_, _ = HashPassword("not-a-real-password")
 		return nil, fmt.Errorf("invalid username or password")
 	}
 	if u.Disabled || !VerifyPassword(password, hash) || u.Source() != SourceLocal {

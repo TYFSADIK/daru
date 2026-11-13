@@ -101,7 +101,7 @@ func (s *Server) handleHEC(w http.ResponseWriter, r *http.Request) {
 		writeHECError(w, http.StatusInternalServerError, "Could not store events")
 		return
 	}
-	s.metrics.ingestEvents.Add(uint64(n))
+	s.metrics.ingestEvents.Add(uint64(n)) // #nosec G115 -- n is a non-negative event count
 	writeJSON(w, http.StatusOK, map[string]any{"text": "Success", "code": 0, "events": n})
 }
 
@@ -133,7 +133,7 @@ func (s *Server) handleHECRaw(w http.ResponseWriter, r *http.Request) {
 		writeHECError(w, http.StatusInternalServerError, "Could not store events")
 		return
 	}
-	s.metrics.ingestEvents.Add(uint64(n))
+	s.metrics.ingestEvents.Add(uint64(n)) // #nosec G115 -- n is a non-negative event count
 	writeJSON(w, http.StatusOK, map[string]any{"text": "Success", "code": 0, "events": n})
 }
 
@@ -171,7 +171,7 @@ func (s *Server) handleJSONIngest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not store events")
 		return
 	}
-	s.metrics.ingestEvents.Add(uint64(n))
+	s.metrics.ingestEvents.Add(uint64(n)) // #nosec G115 -- n is a non-negative event count
 	writeJSON(w, http.StatusOK, map[string]any{"events": n})
 }
 
@@ -182,7 +182,7 @@ func (s *Server) admitIngest(w http.ResponseWriter, n int, hec bool) bool {
 	if ok {
 		return true
 	}
-	s.metrics.ingestRejected.Add(uint64(n))
+	s.metrics.ingestRejected.Add(uint64(n)) // #nosec G115 -- n is a non-negative event count
 	secs := int(wait/time.Second) + 1
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	if hec {

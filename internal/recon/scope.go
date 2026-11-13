@@ -102,6 +102,12 @@ func validatePcapPath(t string) (string, error) {
 		if err != nil {
 			continue
 		}
+		// Resolve the directory the same way as the file. On macOS the
+		// temp directory lives under /var, a symlink to /private/var, so
+		// an unresolved allowlist entry never matches a resolved file.
+		if real, err := filepath.EvalSymlinks(dabs); err == nil {
+			dabs = real
+		}
 		if abs == dabs || strings.HasPrefix(abs, dabs+string(filepath.Separator)) {
 			return abs, nil
 		}

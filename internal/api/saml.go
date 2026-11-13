@@ -223,7 +223,7 @@ func (s *Server) handleSAMLLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	// The IdP returns with a cross site POST, which only carries a
 	// SameSite=None cookie, and SameSite=None requires Secure.
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- SameSite=None is required for the IdP's cross-site POST; Secure is always true
 		Name: samlStateCookie, Value: state, Path: "/api/saml/", MaxAge: 600,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
 	})
@@ -243,7 +243,7 @@ func (s *Server) handleSAMLACS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "saml is not configured")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: samlStateCookie, Value: "", Path: "/api/saml/", MaxAge: -1,
+	http.SetCookie(w, &http.Cookie{Name: samlStateCookie, Value: "", Path: "/api/saml/", MaxAge: -1, // #nosec G124 -- SameSite=None is required for the IdP's cross-site POST; Secure is always true
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := r.ParseForm(); err != nil {

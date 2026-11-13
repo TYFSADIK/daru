@@ -195,7 +195,14 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer os.RemoveAll(dir)
+	// The analysis goroutine owns dir once it starts; until then every
+	// return path removes it here.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = os.RemoveAll(dir)
+		}
+	}()
 	tmp, err := os.CreateTemp(dir, "cap-*.pcap")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -203,14 +210,14 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 	}
 	path := tmp.Name()
 	n, err := io.Copy(tmp, io.LimitReader(file, maxPcap+1))
-	tmp.Close()
+	if cerr := tmp.Close(); err == nil {
+		err = cerr // a failed flush leaves a truncated capture
+	}
 	if err != nil {
-		os.Remove(path)
 		writeError(w, http.StatusInternalServerError, "could not save upload")
 		return
 	}
 	if n > maxPcap {
-		os.Remove(path)
 		writeError(w, http.StatusRequestEntityTooLarge, "capture file is over 200 MB")
 		return
 	}
@@ -218,7 +225,6 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 	req := recon.Request{Connector: "tshark-pcap", Target: path, Profile: "summary"}
 	connector, args, target, err := recon.Prepare(req)
 	if err != nil {
-		os.Remove(path)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -231,13 +237,11 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 		release, err = s.quotas.acquireScan(user)
 	}
 	if err != nil {
-		os.Remove(path)
 		s.metrics.quotaRejected.Add(1)
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
 	if err := s.acquireReconSem(); err != nil {
-		os.Remove(path)
 		release()
 		if err == recon.ErrBusy {
 			writeError(w, http.StatusTooManyRequests, err.Error())
@@ -253,29 +257,35 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		<-s.reconSem
 		release()
-		os.Remove(path)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.metrics.scansStarted.Add(1)
-	go func() {
-		defer func() { <-s.reconSem; release(); os.Remove(path) }()
+	handedOff = true
+	go func() { // #nosec G118 -- the pcap analysis is meant to outlive the upload request
+		defer func() { <-s.reconSem; release(); _ = os.RemoveAll(dir) }()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		res := recon.Execute(ctx, connector, args, req, 8*time.Minute)
 		findings := make([]store.ScanFinding, 0, len(res.Findings))
 		for _, f := range res.Findings {
+			// The parser targets the server-side temp path; record the uploaded
+			// file name instead, as the scan record does.
 			findings = append(findings, store.ScanFinding{
-				ScanID: scanID, Title: f.Title, Severity: f.Severity, Target: f.Target,
+				ScanID: scanID, Title: f.Title, Severity: f.Severity, Target: label,
 				Port: f.Port, Service: f.Service, Detail: f.Detail, Fields: findingFields(f),
 			})
 		}
-		s.Store.InsertFindings(ctx, "tshark-pcap", findings)
+		if err := s.Store.InsertFindings(ctx, "tshark-pcap", findings); err != nil {
+			s.Log.Error("could not save pcap findings", "scan", scanID, "err", err)
+		}
 		status := "completed"
 		if res.Err != "" && len(findings) == 0 {
 			status = "failed"
 		}
-		s.Store.CompleteScan(ctx, scanID, status, len(findings), res.Err)
+		if err := s.Store.CompleteScan(ctx, scanID, status, len(findings), res.Err); err != nil {
+			s.Log.Error("could not complete pcap scan", "scan", scanID, "err", err)
+		}
 		s.Log.Info("pcap analyzed", "file", label, "packets", len(findings))
 	}()
 	writeJSON(w, http.StatusOK, map[string]any{"scan_id": scanID, "status": "running", "file": label})

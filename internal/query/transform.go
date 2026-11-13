@@ -148,15 +148,6 @@ func windowAggExpr(a agg, rel *relation, over string) (string, error) {
 	return "", fmt.Errorf("unknown aggregation %q", a.Fn)
 }
 
-// stringAgg reports whether an aggregation produces a string rather than a number.
-func stringAgg(a agg) bool {
-	switch a.Fn {
-	case "values", "list", "mode", "earliest", "latest", "last", "first":
-		return true
-	}
-	return false
-}
-
 func compileStats(rel *relation, c *cmdStats) (*relation, error) {
 	if c.Kind == "streamstats" {
 		return compileStreamstats(rel, c)
@@ -700,7 +691,7 @@ func compileSpath(rel *relation, c *cmdSpath) (*relation, error) {
 	explicit, order := cloneCols(rel)
 	path := strings.Split(c.Path, ".")
 	var access strings.Builder
-	access.WriteString(fmt.Sprintf("toString(%s)", resolveStr(c.Input, rel)))
+	fmt.Fprintf(&access, "toString(%s)", resolveStr(c.Input, rel))
 	expr := access.String()
 	for _, p := range path {
 		expr = fmt.Sprintf("JSONExtractString(%s, %s)", expr, chStr(p))
@@ -726,19 +717,6 @@ func compileSpath(rel *relation, c *cmdSpath) (*relation, error) {
 type namedGroup struct {
 	Name  string
 	Index int
-}
-
-// namedGroups extracts (?<name>...) group names in order.
-func namedGroups(pattern string) []string {
-	groups, err := groupIndices(pattern)
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, g := range groups {
-		names = append(names, g.Name)
-	}
-	return names
 }
 
 // groupIndices returns every named group with its true index, counting

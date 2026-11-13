@@ -68,7 +68,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start sign in")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows DARU_SECURE_COOKIES (plain HTTP on localhost by default)
 		Name: oidcStateCookie, Value: state, Path: "/api/oidc/", MaxAge: 600,
 		HttpOnly: true, Secure: s.Secure, SameSite: http.SameSiteLaxMode,
 	})
@@ -91,7 +91,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The state cookie is single use whatever happens next.
-	http.SetCookie(w, &http.Cookie{Name: oidcStateCookie, Value: "", Path: "/api/oidc/", MaxAge: -1,
+	http.SetCookie(w, &http.Cookie{Name: oidcStateCookie, Value: "", Path: "/api/oidc/", MaxAge: -1, // #nosec G124 -- Secure follows DARU_SECURE_COOKIES (plain HTTP on localhost by default)
 		HttpOnly: true, Secure: s.Secure, SameSite: http.SameSiteLaxMode})
 	q := r.URL.Query()
 	if e := q.Get("error"); e != "" {

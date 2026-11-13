@@ -47,7 +47,7 @@ func (s *Server) setCSRFCookie(w http.ResponseWriter) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- the CSRF cookie must be readable by JS (double submit); Secure follows DARU_SECURE_COOKIES
 		Name:     csrfCookie,
 		Value:    tok,
 		Path:     "/",

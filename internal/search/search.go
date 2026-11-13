@@ -311,7 +311,9 @@ func toInt(v any) int64 {
 		}
 	case string:
 		var i int64
-		fmt.Sscan(n, &i)
+		if _, err := fmt.Sscan(n, &i); err != nil {
+			return 0
+		}
 		return i
 	}
 	return 0

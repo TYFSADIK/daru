@@ -120,6 +120,32 @@ func (s *Store) EnsureIndex(ctx context.Context, name string, retentionDays uint
 	return s.exec(ctx, sql)
 }
 
+// RegisterIndex registers an index with retentionDays only when it is not
+// registered yet, so an admin's retention setting is never overwritten.
+// Use it for defaults and implicit creation; EnsureIndex is for an admin
+// deliberately setting retention.
+func (s *Store) RegisterIndex(ctx context.Context, name string, retentionDays uint32) error {
+	if !validName(name) {
+		return fmt.Errorf("invalid index name %q", name)
+	}
+	if retentionDays == 0 || retentionDays > MaxRetentionDays {
+		retentionDays = 90
+	}
+	return s.exec(ctx, fmt.Sprintf(
+		"INSERT INTO indexes (name, retention_days, updated_at) SELECT %s, %d, now64(3) WHERE %s NOT IN (SELECT name FROM indexes)",
+		quote(name), retentionDays, quote(name)))
+}
+
+// RegisterEventIndexes registers, with 90 day retention, every index that
+// holds events but was never registered. Search and the retention sweep
+// only see registered indexes, so such data was invisible and kept until
+// the table TTL.
+func (s *Store) RegisterEventIndexes(ctx context.Context) error {
+	return s.exec(ctx, `INSERT INTO indexes (name, retention_days, updated_at)
+		SELECT DISTINCT index, 90, now64(3) FROM events
+		WHERE index NOT IN (SELECT name FROM indexes)`)
+}
+
 // ListIndexes returns known index names with event counts.
 func (s *Store) ListIndexes(ctx context.Context) ([]IndexInfo, error) {
 	res, err := s.Query(ctx, `
@@ -261,7 +287,9 @@ func asInt(v any) int64 {
 		return 0
 	case string:
 		var i int64
-		fmt.Sscan(n, &i)
+		if _, err := fmt.Sscan(n, &i); err != nil {
+			return 0
+		}
 		return i
 	}
 	return 0

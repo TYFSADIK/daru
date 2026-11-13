@@ -211,7 +211,7 @@ func Run(ctx context.Context, c *Connector, args []string, r Request, timeout ti
 		res.Err = "connector binary could not be resolved (refusing bare-name fallback)"
 		return res
 	}
-	cmd := exec.CommandContext(runCtx, bin, args...)
+	cmd := exec.CommandContext(runCtx, bin, args...) // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 	cmd.Env = append(os.Environ(), "PATH="+execPATH())
 	// Run each external tool in a disposable working directory so scanners that
 	// drop artifacts in cwd (e.g. fierce's "<domain>_ips.txt") don't litter

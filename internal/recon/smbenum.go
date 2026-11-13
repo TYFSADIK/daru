@@ -222,7 +222,7 @@ const MaxToolOutputBytes = 1 << 20
 func runTool(ctx context.Context, bin string, timeout time.Duration, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, args...)
+	cmd := exec.CommandContext(cctx, bin, args...) // #nosec G204 -- recon tools run as an argv list (no shell) from a vetted binary path
 	var buf bytes.Buffer
 	cmd.Stdout = capWriter(&buf, MaxToolOutputBytes)
 	cmd.Stderr = capWriter(&buf, MaxToolOutputBytes)
