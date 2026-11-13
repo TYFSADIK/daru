@@ -267,6 +267,28 @@ v3.4.15 and `github.com/crewjam/saml` v0.6.3.
   admin, the marker row and the 3650 day TTL come back; a junk archive and
   a wrong password are refused with a clear message.
 
+## Follow up, 2026-11-13 (5): security flags read as 0, found on the live upgrade
+
+After the live upgrade, Daru logged "could not create bootstrap admin: user
+admin already exists", meaning it counted zero users. Cause: since L3, the
+store returns integers as json.Number, and `auth.toInt` only handled
+float64 and string, so every numeric cell read as 0. ClickHouse sends UInt8
+flags as bare numbers (and, on 25.x, counts too), so this silently broke:
+- `sessions.revoked`: revoked sessions (logout, password change, demotion)
+  stayed valid;
+- `users.disabled`: disabled accounts could still sign in;
+- `users.totp_enabled`: TOTP was never required;
+- `ingest_tokens.disabled`: disabled ingest tokens were still accepted;
+- the user count (the bootstrap warning).
+The tests missed it because their fake ClickHouse sent numbers as strings.
+Fixed `auth.toInt` for json.Number, int64, int, float64, and strict
+strings; added tests with a fake that sends bare numbers as ClickHouse
+does. Also: `POST /api/logout` revoked only cookie sessions, so a Bearer
+client's logout left its token valid; it now revokes the token that
+authenticated the request. Verified live on ClickHouse 25.8: cookie and
+Bearer logout both end the session, a disabled account cannot sign in and
+its old session is refused, and a restart no longer tries to bootstrap.
+
 ## Remaining honest limits
 
 - govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on

@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -338,14 +340,30 @@ func str(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// toInt reads an integer cell from the store. The store keeps integers as
+// json.Number (ClickHouse sends UInt8 flags and, on 25.x, counts as bare
+// numbers), quoted 64 bit integers as strings, and anything else as
+// float64. Missing a case here silently reads a security flag such as
+// revoked, disabled, or totp_enabled as 0, so every form is handled.
 func toInt(v any) int64 {
 	switch n := v.(type) {
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		if f, err := n.Float64(); err == nil {
+			return int64(f)
+		}
 	case float64:
 		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
 	case string:
-		var i int64
-		fmt.Sscan(n, &i)
-		return i
+		if i, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil {
+			return i
+		}
 	}
 	return 0
 }

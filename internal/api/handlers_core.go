@@ -84,11 +84,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	username := ""
+	// Revoke whichever token authenticated the request, cookie or Bearer,
+	// so an API client's logout ends its session too.
 	if sess, _ := s.session(r); sess != nil {
 		username = sess.Username
-	}
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.Auth.Logout(r.Context(), c.Value)
+		if err := s.Auth.Logout(r.Context(), sess.Token); err != nil {
+			s.Log.Warn("could not revoke session on logout", "user", username, "err", err)
+		}
+	} else if c, err := r.Cookie(sessionCookie); err == nil {
+		_ = s.Auth.Logout(r.Context(), c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
