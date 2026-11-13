@@ -44,6 +44,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, token, err := s.Auth.Login(r.Context(), req.Username, req.Password, req.TOTP)
+	if err != nil && !errors.Is(err, auth.ErrTOTPRequired) && s.LDAP != nil {
+		// Not a local account, or a wrong local password: try the
+		// directory. resolveExternal refuses LDAP sign in to an account
+		// of another source, so a directory user cannot take over a
+		// local account with the same name.
+		user, token, err = s.ldapLogin(r, req.Username, req.Password, req.TOTP)
+	}
 	if err != nil {
 		if errors.Is(err, auth.ErrTOTPRequired) {
 			s.audit(r, "login.totp_required", req.Username)

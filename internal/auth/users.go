@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// ValidUsername reports whether u is an acceptable Daru username.
+func ValidUsername(u string) bool { return validUsername(u) }
+
 func validUsername(u string) bool {
 	if len(u) < 2 || len(u) > 64 {
 		return false
@@ -25,9 +28,30 @@ func (m *Manager) CreateUser(ctx context.Context, username, password, role, emai
 	return m.CreateUserWithAccess(ctx, username, password, role, email, AllIndexes)
 }
 
-// CreateUserWithAccess adds an account with an IndexAccess value built by
-// FormatIndexAccess.
+// CreateUserWithAccess adds a local (password) account with an IndexAccess
+// value built by FormatIndexAccess.
 func (m *Manager) CreateUserWithAccess(ctx context.Context, username, password, role, email, indexAccess string) (*User, error) {
+	return m.CreateAccount(ctx, username, password, role, email, indexAccess, SourceLocal)
+}
+
+// CreateExternalAccount adds an account that signs in through ldap, oidc,
+// or saml. It gets a random password nobody knows.
+func (m *Manager) CreateExternalAccount(ctx context.Context, username, role, email, indexAccess, source string) (*User, error) {
+	if source == SourceLocal {
+		return nil, fmt.Errorf("external account needs an external source")
+	}
+	pw, _, err := NewToken("unusable")
+	if err != nil {
+		return nil, err
+	}
+	return m.CreateAccount(ctx, username, pw, role, email, indexAccess, source)
+}
+
+// CreateAccount adds an account of any source.
+func (m *Manager) CreateAccount(ctx context.Context, username, password, role, email, indexAccess, source string) (*User, error) {
+	if !ValidSource(source) {
+		return nil, fmt.Errorf("unknown account source %q", source)
+	}
 	username = strings.TrimSpace(username)
 	if !validUsername(username) {
 		return nil, fmt.Errorf("username must be 2 to 64 characters of letters, digits, or _-.@")
@@ -43,19 +67,19 @@ func (m *Manager) CreateUserWithAccess(ctx context.Context, username, password, 
 		return nil, err
 	}
 	sql := fmt.Sprintf(
-		"INSERT INTO users (username, password_hash, role, email, index_access, updated_at) VALUES (%s, %s, %s, %s, %s, now64(3))",
-		q(username), q(hash), q(role), q(email), q(indexAccess),
+		"INSERT INTO users (username, password_hash, role, email, index_access, auth_source, updated_at) VALUES (%s, %s, %s, %s, %s, %s, now64(3))",
+		q(username), q(hash), q(role), q(email), q(indexAccess), q(source),
 	)
 	if err := m.st.Exec(ctx, sql); err != nil {
 		return nil, err
 	}
-	return &User{Username: username, Role: role, Email: email, IndexAccess: indexAccess}, nil
+	return &User{Username: username, Role: role, Email: email, IndexAccess: indexAccess, AuthSource: source}, nil
 }
 
 // GetUser returns an account by username, or nil if not found.
 func (m *Manager) GetUser(ctx context.Context, username string) (*User, error) {
 	res, err := m.st.Query(ctx, fmt.Sprintf(
-		"SELECT id, username, role, email, disabled, index_access FROM users FINAL WHERE username = %s LIMIT 1", q(username)))
+		"SELECT id, username, role, email, disabled, index_access, auth_source FROM users FINAL WHERE username = %s LIMIT 1", q(username)))
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +90,15 @@ func (m *Manager) GetUser(ctx context.Context, username string) (*User, error) {
 	if len(res.Rows[0]) > 5 {
 		u.IndexAccess = str(res.Rows[0][5])
 	}
+	if len(res.Rows[0]) > 6 {
+		u.AuthSource = str(res.Rows[0][6])
+	}
 	return u, nil
 }
 
 // ListUsers returns all accounts.
 func (m *Manager) ListUsers(ctx context.Context) ([]User, error) {
-	res, err := m.st.Query(ctx, "SELECT id, username, role, email, disabled, index_access FROM users FINAL ORDER BY username")
+	res, err := m.st.Query(ctx, "SELECT id, username, role, email, disabled, index_access, auth_source FROM users FINAL ORDER BY username")
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +107,9 @@ func (m *Manager) ListUsers(ctx context.Context) ([]User, error) {
 		u := rowToUser(row)
 		if len(row) > 5 {
 			u.IndexAccess = str(row[5])
+		}
+		if len(row) > 6 {
+			u.AuthSource = str(row[6])
 		}
 		out = append(out, *u)
 	}
@@ -93,8 +123,8 @@ func (m *Manager) ListUsers(ctx context.Context) ([]User, error) {
 // update mechanism.
 func (m *Manager) saveUserRow(ctx context.Context, u *User, hash, totpSecret string, totpEnabled bool) error {
 	return m.st.Exec(ctx, fmt.Sprintf(
-		"INSERT INTO users (id, username, password_hash, role, email, disabled, totp_secret, totp_enabled, index_access, updated_at) VALUES (%s, %s, %s, %s, %s, %d, %s, %d, %s, now64(3))",
-		q(u.ID), q(u.Username), q(hash), q(u.Role), q(u.Email), b2i(u.Disabled), q(totpSecret), b2i(totpEnabled), q(u.IndexAccess)))
+		"INSERT INTO users (id, username, password_hash, role, email, disabled, totp_secret, totp_enabled, index_access, auth_source, updated_at) VALUES (%s, %s, %s, %s, %s, %d, %s, %d, %s, %s, now64(3))",
+		q(u.ID), q(u.Username), q(hash), q(u.Role), q(u.Email), b2i(u.Disabled), q(totpSecret), b2i(totpEnabled), q(u.IndexAccess), q(u.Source())))
 }
 
 // SetPassword changes a user's password and revokes every existing session,
@@ -167,7 +197,7 @@ func (m *Manager) SetDisabled(ctx context.Context, username string, disabled boo
 // are never exposed in the public User type.
 func (m *Manager) getFull(ctx context.Context, username string) (*User, string, string, bool, error) {
 	res, err := m.st.Query(ctx, fmt.Sprintf(
-		"SELECT id, username, role, email, disabled, password_hash, totp_secret, totp_enabled, index_access FROM users FINAL WHERE username = %s LIMIT 1", q(username)))
+		"SELECT id, username, role, email, disabled, password_hash, totp_secret, totp_enabled, index_access, auth_source FROM users FINAL WHERE username = %s LIMIT 1", q(username)))
 	if err != nil {
 		return nil, "", "", false, err
 	}
@@ -179,6 +209,9 @@ func (m *Manager) getFull(ctx context.Context, username string) (*User, string, 
 	u.TOTPEnabled = len(row) > 7 && toInt(row[7]) != 0
 	if len(row) > 8 {
 		u.IndexAccess = str(row[8])
+	}
+	if len(row) > 9 {
+		u.AuthSource = str(row[9])
 	}
 	secret := ""
 	if len(row) > 6 {
@@ -256,7 +289,7 @@ func (m *Manager) Authenticate(ctx context.Context, username, password string) (
 		HashPassword("not-a-real-password")
 		return nil, fmt.Errorf("invalid username or password")
 	}
-	if u.Disabled || !VerifyPassword(password, hash) {
+	if u.Disabled || !VerifyPassword(password, hash) || u.Source() != SourceLocal {
 		return nil, fmt.Errorf("invalid username or password")
 	}
 	return u, nil

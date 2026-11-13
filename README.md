@@ -203,8 +203,12 @@ your `PATH`, and run `daru serve`.
   owner.
 - **Accounts**: built-in users with Argon2id password hashing, roles (admin,
   power, user), TOTP second factor, and revocable sessions. No external
-  identity provider needed, and optional **OIDC single sign on** when you
-  have one (see [Single sign on](#single-sign-on-oidc)).
+  identity provider needed, and optional **LDAP / Active Directory**,
+  **OIDC**, and **SAML 2.0** sign in when you have one (see
+  [Single sign on](#single-sign-on-oidc)). Each account has a sign in
+  method, and an external identity can only sign in to an account of its
+  own method, so a directory or IdP user can never take over a local
+  account with the same name.
 - **Per-index access control**: each user can be limited to a set of indexes
   (**Admin > Users > Indexes**, or `POST /api/admin/users/{name}/indexes`).
   Searches, the index list, and that user's scheduled alerts only read the
@@ -465,6 +469,16 @@ curl http://localhost:8088/services/collector/raw?sourcetype=syslog \
 | `DARU_OIDC_AUTO_CREATE` | `false` | Create accounts on first SSO sign in |
 | `DARU_OIDC_DEFAULT_ROLE` | `user` | Role for auto created accounts |
 | `DARU_OIDC_DEFAULT_INDEXES` | none | Index access for auto created accounts (`*` or a list) |
+| `DARU_LDAP_URL` | | `ldaps://host:636`; setting it enables directory sign in |
+| `DARU_LDAP_BIND_DN` / `DARU_LDAP_BIND_PASSWORD` | | Service account for user lookups |
+| `DARU_LDAP_BASE_DN` / `DARU_LDAP_USER_FILTER` | / `(uid=%s)` | Where and how users are found |
+| `DARU_LDAP_STARTTLS` / `DARU_LDAP_CA_FILE` | | StartTLS on `ldap://`; CA bundle for the directory |
+| `DARU_LDAP_ADMIN_GROUP` / `DARU_LDAP_POWER_GROUP` | | Group DNs mapped to roles |
+| `DARU_SAML_ROOT_URL` | | Daru's public URL; setting it enables SAML |
+| `DARU_SAML_IDP_METADATA_URL` / `_FILE` | | IdP metadata |
+| `DARU_SAML_SP_KEY` / `DARU_SAML_SP_CERT` | | SP key pair (PEM) |
+| `DARU_SAML_USERNAME_ATTR` / `DARU_SAML_GROUP_ATTR` | NameID / `groups` | Identity attributes |
+| `DARU_SAML_ADMIN_GROUP` / `DARU_SAML_POWER_GROUP` | | Group values mapped to roles |
 
 ### Health, readiness, and metrics
 
@@ -501,9 +515,53 @@ verified email, or set `DARU_OIDC_USERNAME_CLAIM=preferred_username`). With
 (default: no index, so an admin grants access explicitly). Multi factor
 authentication is the provider's job for SSO sign ins.
 
-SAML and LDAP are not built in. Use a provider that federates them and
-speaks OIDC to Daru, such as Keycloak or Authentik in front of an LDAP
-directory or a SAML identity provider.
+### LDAP and Active Directory
+
+The normal password form checks local accounts first, then the directory.
+Daru binds as a service account, finds the user, and binds as the user with
+the typed password. Connections must be TLS (`ldaps://`, or StartTLS);
+plain LDAP is refused except to loopback with `DARU_LDAP_INSECURE=true`.
+Empty passwords are refused before contacting the server, and the username
+is filter escaped.
+
+```bash
+export DARU_LDAP_URL=ldaps://dc.example.com:636
+export DARU_LDAP_BIND_DN="cn=daru,ou=service,dc=example,dc=com"
+export DARU_LDAP_BIND_PASSWORD=...
+export DARU_LDAP_BASE_DN="ou=people,dc=example,dc=com"
+export DARU_LDAP_USER_FILTER="(uid=%s)"          # AD: (sAMAccountName=%s)
+export DARU_LDAP_ADMIN_GROUP="cn=daru-admins,ou=groups,dc=example,dc=com"   # optional
+export DARU_LDAP_POWER_GROUP="cn=daru-power,ou=groups,dc=example,dc=com"    # optional
+```
+
+With group DNs set, the role follows group membership at every sign in.
+Daru TOTP still applies to directory accounts that enrol in it.
+
+### SAML 2.0
+
+Daru is a SAML service provider (HTTP-Redirect requests, HTTP-POST
+responses). Responses must be signed by the IdP (SHA-1 refused), are
+checked for audience, destination, InResponseTo, and validity, are tied to
+the browser that started the sign in, and cannot be replayed. IdP initiated
+sign in is refused.
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -days 730 -subj "/CN=daru-sp" \
+  -keyout sp.key -out sp.crt
+export DARU_SAML_ROOT_URL=https://daru.example.com
+export DARU_SAML_IDP_METADATA_URL=https://idp.example.com/metadata   # or DARU_SAML_IDP_METADATA_FILE
+export DARU_SAML_SP_KEY=/etc/daru/sp.key DARU_SAML_SP_CERT=/etc/daru/sp.crt
+export DARU_SAML_GROUP_ATTR=groups DARU_SAML_ADMIN_GROUP=daru-admins   # optional
+```
+
+Give your IdP the SP metadata from `https://daru.example.com/api/saml/metadata`.
+The username is the NameID unless `DARU_SAML_USERNAME_ATTR` names an
+attribute. The login page then shows **Sign in with SAML**.
+
+LDAP and SAML take the same account options as OIDC:
+`DARU_LDAP_AUTO_CREATE` / `DARU_SAML_AUTO_CREATE` (default off; an admin
+creates the account with the matching sign in method under Admin > Users),
+`..._DEFAULT_ROLE` (default `user`), and `..._DEFAULT_INDEXES` (default none).
 
 ### Webhook signatures
 
@@ -558,7 +616,7 @@ If Daru is useful to you, a star helps other people find it.
 Daru is under active development. Working today: ingest (HEC, raw, JSON), the
 query language and compiler, the search UI with charts, saved searches,
 dashboards, scheduled alerts, the notable-event queue, user and token
-administration, OIDC single sign on, per-index access control and retention, ingest rate limits
+administration, LDAP, OIDC, and SAML sign in, per-index access control and retention, ingest rate limits
 and scan quotas, readiness and Prometheus metrics, signed webhooks, the recon
 subsystem, and network discovery.
 

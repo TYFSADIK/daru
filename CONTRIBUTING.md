@@ -37,10 +37,13 @@ tests, so run these locally first.
 
 ## Guidelines
 
-- Keep the single-binary, no-extra-dependency design. The only runtime
-  dependency outside the standard library and `golang.org/x/crypto` is
-  ClickHouse over its HTTP interface. New third-party Go modules need a good
-  reason.
+- Keep the single-binary design and keep dependencies minimal. The runtime
+  service dependency is ClickHouse over its HTTP interface. Go modules
+  outside the standard library are limited to `golang.org/x/crypto`,
+  `github.com/go-ldap/ldap/v3` (LDAP sign in), and `github.com/crewjam/saml`
+  (SAML sign in, which needs audited XML signature handling that must not be
+  hand written), plus their own dependencies. New third-party Go modules
+  need a good reason.
 - Add tests for new behavior. The query compiler, ingest field extraction, the
   cron parser, and the recon scope guard all have table-driven tests to follow.
 - Match the style of the surrounding code: clear names, small functions, and

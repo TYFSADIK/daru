@@ -32,6 +32,10 @@ type OIDCSettings struct {
 	DefaultIndexAccess string
 }
 
+func (o OIDCSettings) policy() ExternalAccountPolicy {
+	return ExternalAccountPolicy{AutoCreate: o.AutoCreate, DefaultRole: o.DefaultRole, DefaultIndexAccess: o.DefaultIndexAccess}
+}
+
 type oidcPending struct {
 	nonce, verifier string
 	expires         time.Time
@@ -135,50 +139,16 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		s.oidcFail(w, r, claims.Subject, err.Error())
 		return
 	}
-	u, err := s.Auth.GetUser(r.Context(), username)
+	u, err := s.resolveExternal(r.Context(), r, auth.SourceOIDC, username, claims.Email, "", s.OIDC.policy())
 	if err != nil {
-		s.oidcFail(w, r, username, "user lookup failed")
+		s.oidcFail(w, r, username, reasonOf(err))
 		return
 	}
-	if u == nil {
-		if !s.OIDC.AutoCreate {
-			s.oidcFail(w, r, username, "no Daru account for this identity and auto create is off")
-			return
-		}
-		// The account gets a random password nobody knows; it signs in
-		// through the provider only, unless an admin sets a password.
-		pw, err := randomString(32)
-		if err != nil {
-			s.oidcFail(w, r, username, "could not create account")
-			return
-		}
-		role := s.OIDC.DefaultRole
-		if role == "" {
-			role = auth.RoleUser
-		}
-		if u, err = s.Auth.CreateUserWithAccess(r.Context(), username, pw, role, claims.Email, s.OIDC.DefaultIndexAccess); err != nil {
-			s.oidcFail(w, r, username, "could not create account: "+err.Error())
-			return
-		}
-		s.audit(r, "user.create_oidc", username, "role", role, "index_access", s.OIDC.DefaultIndexAccess)
-	}
-	if u.Disabled {
-		s.oidcFail(w, r, username, "account disabled")
-		return
-	}
-	token, err := s.Auth.NewSession(r.Context(), u)
-	if err != nil {
+	if err := s.startSession(w, u); err != nil {
 		s.oidcFail(w, r, username, "could not create session")
 		return
 	}
 	s.audit(r, "login.success", username, "method", "oidc")
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: s.Secure,
-		SameSite: http.SameSiteLaxMode, MaxAge: int((12 * time.Hour).Seconds()),
-	})
-	if _, err := s.setCSRFCookie(w); err != nil {
-		s.Log.Warn("could not issue csrf token", "err", err)
-	}
 	http.Redirect(w, r, "/#/search", http.StatusFound)
 }
 

@@ -77,6 +77,38 @@ type User struct {
 	// "*" means every index; an empty string means none. Admins always
 	// read every index whatever this says.
 	IndexAccess string `json:"index_access"`
+	// AuthSource is how the account signs in: "local" (password), or one
+	// of "ldap", "oidc", "saml". An external identity can only sign in to
+	// an account of its own source, so a directory or IdP user named like
+	// a local admin can never take that account over. Accounts of an
+	// external source cannot use the local password form.
+	AuthSource string `json:"auth_source"`
+}
+
+// Account sources.
+const (
+	SourceLocal = "local"
+	SourceLDAP  = "ldap"
+	SourceOIDC  = "oidc"
+	SourceSAML  = "saml"
+)
+
+// ValidSource reports whether s is a known account source.
+func ValidSource(s string) bool {
+	switch s {
+	case SourceLocal, SourceLDAP, SourceOIDC, SourceSAML:
+		return true
+	}
+	return false
+}
+
+// Source returns the account source, treating rows written before the
+// column existed as local.
+func (u *User) Source() string {
+	if u.AuthSource == "" {
+		return SourceLocal
+	}
+	return u.AuthSource
 }
 
 // AllIndexes is the IndexAccess value granting every index.

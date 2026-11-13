@@ -43,6 +43,7 @@
     <label>Authenticator code (only if TOTP is enabled)<input name="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>
     <button type="submit" class="btn-primary">Sign in</button>
     <a id="sso-btn" class="btn-ghost sso-btn hidden" href="/api/oidc/login">Sign in with SSO</a>
+    <a id="saml-btn" class="btn-ghost sso-btn hidden" href="/api/saml/login">Sign in with SAML</a>
     <p class="login-error" id="login-error" role="alert"></p>
   </form>
 </div>

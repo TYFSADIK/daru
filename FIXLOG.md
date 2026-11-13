@@ -186,10 +186,45 @@ Gates for this pass: `gofmt -l .` empty, `go vet ./...` exit 0,
   `docs/daru-logo.png` and used in the README. The old `logo.svg`,
   `docs/banner.png`, and `docs/banner.svg` were removed.
 
+## Follow up, 2026-11-13 (2): native LDAP and SAML
+
+The owner chose native LDAP and SAML over an OIDC bridge, and relaxed the
+dependency rule in CONTRIBUTING.md to allow `github.com/go-ldap/ldap/v3`
+v3.4.15 and `github.com/crewjam/saml` v0.6.3.
+
+- Account sign in method: `users.auth_source` (local, ldap, oidc, saml;
+  existing rows are local). An external identity signs in only to an
+  account of its own method; a local password never signs in to an external
+  account. Verified live: a directory user `bob` cannot open the local admin
+  `bob`. This also tightened OIDC, which previously mapped onto any account
+  with a matching username.
+- LDAP: service bind, escaped search, exactly one match, user bind. TLS
+  required (plain only to loopback with an explicit flag). Empty passwords
+  refused before any network call (unauthenticated bind). Group DNs map to
+  roles and resync at each sign in. Daru TOTP applies. Verified against a
+  live glauth directory: correct passwords pass with group roles; wrong
+  passwords, `*`, `al*`, and `alice)(uid=*` are refused; through the live
+  server, auto create made `alice` an ldap admin.
+- SAML: crewjam/saml service provider; signed responses required, SHA-1
+  refused, replay cache, IdP initiated refused, request bound to the browser
+  by a SameSite=None Secure cookie, AuthnRequests signed (RSA-SHA256 or
+  ECDSA-SHA256) unless `DARU_SAML_UNSIGNED_REQUESTS=true`. End to end tests
+  against crewjam's samlidp IdP with real keys: sign in and role sync work;
+  a replayed response, an altered response, an ACS post without the state
+  cookie, and a SAML identity matching a local account are all refused.
+- Admin UI: Users shows the sign in method; Add user picks it (password only
+  for local accounts). Login page shows Sign in with SAML when configured.
+- Gates: `gofmt -l .` empty, `go vet ./...` exit 0, `go test -race ./...`
+  all pass (194 top level tests), `docker build` succeeds with the new
+  modules.
+- Not done here: govulncheck over the new modules. Running it was blocked
+  by this session's permission settings; run
+  `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (CI already does).
+
 ## Remaining honest limits
 
-- SAML and LDAP are reached through an OIDC provider, not natively.
-- OIDC state, the ACL cache, quotas, and the ingest bucket are in memory per
+- OIDC and SAML sign in state, the SAML replay cache, the ACL cache, quotas,
+  and the ingest bucket are in memory per
   process. Running several Daru replicas behind a load balancer needs sticky
   sessions for SSO sign in, and limits apply per replica.
 - install.sh Go SHA-256 pins are for Go 1.27.3 (re-verified against the

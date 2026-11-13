@@ -25,6 +25,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		// Indexes restricts the new user to these indexes. Omitted means
 		// every index; ["*"] also means every index.
 		Indexes *[]string `json:"indexes"`
+		// AuthSource is how the account signs in: local (default, needs a
+		// password), or ldap, oidc, saml (no password; the identity must
+		// come from that provider).
+		AuthSource string `json:"auth_source"`
 	}
 	if err := readJSON(r, &req, 64*1024); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -45,12 +49,29 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	u, err := s.Auth.CreateUserWithAccess(r.Context(), req.Username, req.Password, req.Role, req.Email, access)
+	if req.AuthSource == "" {
+		req.AuthSource = auth.SourceLocal
+	}
+	if !auth.ValidSource(req.AuthSource) {
+		writeError(w, http.StatusBadRequest, "auth_source must be local, ldap, oidc, or saml")
+		return
+	}
+	var u *auth.User
+	var err error
+	if req.AuthSource == auth.SourceLocal {
+		u, err = s.Auth.CreateUserWithAccess(r.Context(), req.Username, req.Password, req.Role, req.Email, access)
+	} else {
+		if req.Password != "" {
+			writeError(w, http.StatusBadRequest, "accounts that sign in with "+req.AuthSource+" have no Daru password")
+			return
+		}
+		u, err = s.Auth.CreateExternalAccount(r.Context(), req.Username, req.Role, req.Email, access, req.AuthSource)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "could not create user")
 		return
 	}
-	s.audit(r, "user.create", sessionFrom(r.Context()).Username, "target", req.Username, "role", req.Role)
+	s.audit(r, "user.create", sessionFrom(r.Context()).Username, "target", req.Username, "role", req.Role, "auth_source", req.AuthSource)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 

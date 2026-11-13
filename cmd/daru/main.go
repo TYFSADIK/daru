@@ -261,6 +261,27 @@ Single sign on (OIDC, authorization code flow with PKCE):
   DARU_OIDC_DEFAULT_ROLE     Role for auto created accounts (default user)
   DARU_OIDC_DEFAULT_INDEXES  Index access for auto created accounts: "*" or a comma list (default none)
 
+Directory sign in (LDAP; the password form tries the directory after local accounts):
+  DARU_LDAP_URL              ldaps://host:636, or ldap://host:389 with DARU_LDAP_STARTTLS=true
+  DARU_LDAP_BIND_DN          Service account DN used to search for users
+  DARU_LDAP_BIND_PASSWORD    Service account password
+  DARU_LDAP_BASE_DN          Search base for users
+  DARU_LDAP_USER_FILTER      Default (uid=%s); Active Directory: (sAMAccountName=%s)
+  DARU_LDAP_CA_FILE          PEM CA bundle for the directory's certificate
+  DARU_LDAP_ADMIN_GROUP      Group DN mapped to admin (with POWER_GROUP, roles follow groups)
+  DARU_LDAP_POWER_GROUP      Group DN mapped to power
+  DARU_LDAP_AUTO_CREATE, DARU_LDAP_DEFAULT_ROLE, DARU_LDAP_DEFAULT_INDEXES  As for OIDC
+
+SAML 2.0 single sign on:
+  DARU_SAML_ROOT_URL         https://<daru host>; SP metadata is served at /api/saml/metadata
+  DARU_SAML_IDP_METADATA_URL IdP metadata URL (or DARU_SAML_IDP_METADATA_FILE)
+  DARU_SAML_SP_KEY, DARU_SAML_SP_CERT  SP signing key and certificate (PEM)
+  DARU_SAML_USERNAME_ATTR    Attribute for the username (default: the NameID)
+  DARU_SAML_GROUP_ATTR       Attribute holding groups (default groups)
+  DARU_SAML_ADMIN_GROUP, DARU_SAML_POWER_GROUP  Group values mapped to roles
+  DARU_SAML_UNSIGNED_REQUESTS  "true" stops signing AuthnRequests (responses are always verified)
+  DARU_SAML_AUTO_CREATE, DARU_SAML_DEFAULT_ROLE, DARU_SAML_DEFAULT_INDEXES  As for OIDC
+
 Probes:
   GET /api/health            Liveness: the process answers
   GET /ready                 Readiness: 200 only when ClickHouse answers
@@ -385,6 +406,12 @@ func serve(log *slog.Logger) {
 	if cfg.oidc.issuer != "" {
 		srv.OIDC = setupOIDC(ctx, cfg.oidc, log)
 	}
+	if url := os.Getenv("DARU_LDAP_URL"); url != "" {
+		srv.LDAP, srv.LDAPPolicy = setupLDAP(url, log)
+	}
+	if os.Getenv("DARU_SAML_ROOT_URL") != "" {
+		srv.SAML = setupSAML(ctx, log)
+	}
 
 	sched := alerts.NewScheduler(st, search.New(st), log)
 	sched.SetWebhookSecret(cfg.webhookSecret)
@@ -432,6 +459,88 @@ func serve(log *slog.Logger) {
 	shutdownCtx, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
 	httpServer.Shutdown(shutdownCtx)
+}
+
+// externalPolicy reads PREFIX_AUTO_CREATE, PREFIX_DEFAULT_ROLE and
+// PREFIX_DEFAULT_INDEXES, shared by LDAP and SAML.
+func externalPolicy(prefix string, log *slog.Logger) api.ExternalAccountPolicy {
+	role := env(prefix+"_DEFAULT_ROLE", auth.RoleUser)
+	if !auth.ValidRole(role) {
+		fatal(log, prefix+"_DEFAULT_ROLE must be admin, power, or user", nil)
+	}
+	auto := env(prefix+"_AUTO_CREATE", "") == "true"
+	if auto && role == auth.RoleAdmin {
+		log.Warn("WARNING: " + prefix + "_AUTO_CREATE gives every new identity the admin role")
+	}
+	access := auth.AllIndexes
+	if raw := env(prefix+"_DEFAULT_INDEXES", ""); raw != auth.AllIndexes {
+		var list []string
+		for _, ix := range strings.Split(raw, ",") {
+			if ix = strings.TrimSpace(ix); ix != "" {
+				list = append(list, ix)
+			}
+		}
+		var err error
+		if access, err = auth.FormatIndexAccess(false, list); err != nil {
+			fatal(log, "invalid "+prefix+"_DEFAULT_INDEXES", err)
+		}
+	}
+	return api.ExternalAccountPolicy{AutoCreate: auto, DefaultRole: role, DefaultIndexAccess: access}
+}
+
+func setupLDAP(url string, log *slog.Logger) (*auth.LDAPAuthenticator, api.ExternalAccountPolicy) {
+	a, err := auth.NewLDAPAuthenticator(auth.LDAPConfig{
+		URL:          url,
+		StartTLS:     env("DARU_LDAP_STARTTLS", "") == "true",
+		Insecure:     env("DARU_LDAP_INSECURE", "") == "true",
+		CAFile:       env("DARU_LDAP_CA_FILE", ""),
+		BindDN:       env("DARU_LDAP_BIND_DN", ""),
+		BindPassword: env("DARU_LDAP_BIND_PASSWORD", ""),
+		BaseDN:       env("DARU_LDAP_BASE_DN", ""),
+		UserFilter:   env("DARU_LDAP_USER_FILTER", ""),
+		UsernameAttr: env("DARU_LDAP_USERNAME_ATTR", ""),
+		EmailAttr:    env("DARU_LDAP_EMAIL_ATTR", ""),
+		GroupAttr:    env("DARU_LDAP_GROUP_ATTR", ""),
+		AdminGroup:   env("DARU_LDAP_ADMIN_GROUP", ""),
+		PowerGroup:   env("DARU_LDAP_POWER_GROUP", ""),
+	})
+	if err != nil {
+		fatal(log, "ldap setup failed", err)
+	}
+	log.Info("ldap sign in enabled", "url", url)
+	return a, externalPolicy("DARU_LDAP", log)
+}
+
+func setupSAML(ctx context.Context, log *slog.Logger) *api.SAMLSettings {
+	cfg := api.SAMLConfig{
+		RootURL:          env("DARU_SAML_ROOT_URL", ""),
+		IDPMetadataURL:   env("DARU_SAML_IDP_METADATA_URL", ""),
+		IDPMetadataFile:  env("DARU_SAML_IDP_METADATA_FILE", ""),
+		KeyFile:          env("DARU_SAML_SP_KEY", ""),
+		CertFile:         env("DARU_SAML_SP_CERT", ""),
+		UsernameAttr:     env("DARU_SAML_USERNAME_ATTR", ""),
+		EmailAttr:        env("DARU_SAML_EMAIL_ATTR", ""),
+		GroupAttr:        env("DARU_SAML_GROUP_ATTR", ""),
+		AdminGroup:       env("DARU_SAML_ADMIN_GROUP", ""),
+		PowerGroup:       env("DARU_SAML_POWER_GROUP", ""),
+		UnsignedRequests: env("DARU_SAML_UNSIGNED_REQUESTS", "") == "true",
+		Policy:           externalPolicy("DARU_SAML", log),
+	}
+	deadline := time.Now().Add(time.Minute)
+	for {
+		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		sc, err := api.NewSAML(sctx, cfg)
+		cancel()
+		if err == nil {
+			log.Info("saml single sign on enabled", "sp_entity_id", sc.SP.EntityID)
+			return sc
+		}
+		if time.Now().After(deadline) || !strings.Contains(err.Error(), "fetch IdP metadata") {
+			fatal(log, "saml setup failed", err)
+		}
+		log.Warn("saml metadata fetch failed, retrying", "err", err)
+		time.Sleep(3 * time.Second)
+	}
 }
 
 // setupOIDC discovers the provider, retrying for up to a minute so Daru and

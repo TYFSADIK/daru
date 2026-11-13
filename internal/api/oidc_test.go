@@ -119,7 +119,7 @@ func sessionSet(rec *httptest.ResponseRecorder) bool {
 
 func TestOIDCLoginExistingUser(t *testing.T) {
 	f := newFakeCH()
-	f.addUser("alice@example.com", auth.RoleUser, "main", "unused")
+	f.addUserSource("alice@example.com", auth.RoleUser, "main", "unused", auth.SourceOIDC)
 	idp := newMiniIdP(t)
 	h := oidcServer(t, f, idp, false)
 
@@ -149,8 +149,16 @@ func TestOIDCLoginRefusals(t *testing.T) {
 	if rec := callback(h, state, cookie); rec.Header().Get("Location") != "/?sso=failed" || sessionSet(rec) {
 		t.Error("unknown user signed in with auto create off")
 	}
+	// An IdP identity must not take over a local account of the same name,
+	// even with auto create on.
+	f.addUser("alice@example.com", auth.RoleAdmin, "*", "unused")
+	hAuto := oidcServer(t, f, idp, true)
+	cookie, state = startLogin(t, hAuto, idp)
+	if rec := callback(hAuto, state, cookie); rec.Header().Get("Location") != "/?sso=failed" || sessionSet(rec) {
+		t.Error("OIDC identity signed in to a local admin account")
+	}
 	// Callback in a browser without the state cookie (login CSRF).
-	f.addUser("alice@example.com", auth.RoleUser, "*", "unused")
+	f.addUserSource("alice@example.com", auth.RoleUser, "*", "unused", auth.SourceOIDC)
 	_, state = startLogin(t, h, idp)
 	if rec := callback(h, state, nil); rec.Header().Get("Location") != "/?sso=failed" || sessionSet(rec) {
 		t.Error("callback without the state cookie was accepted")
@@ -181,7 +189,7 @@ func TestOIDCAutoCreateLeastPrivilege(t *testing.T) {
 		}
 	}
 	if !strings.Contains(created, "'newbie@example.com'") || !strings.Contains(created, "'user'") ||
-		!strings.Contains(created, "'', now64(3)") {
+		!strings.Contains(created, "'', 'oidc', now64(3)") {
 		t.Errorf("auto created account should be role user with no index access: %s", created)
 	}
 }

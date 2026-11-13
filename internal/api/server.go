@@ -42,6 +42,11 @@ type Server struct {
 
 	// OIDC configures single sign on; a nil Provider disables it.
 	OIDC OIDCSettings
+	// LDAP, when set, checks passwords the local accounts do not match.
+	LDAP       *auth.LDAPAuthenticator
+	LDAPPolicy ExternalAccountPolicy
+	// SAML configures SAML 2.0 single sign on; nil disables it.
+	SAML *SAMLSettings
 
 	// MetricsToken, when set, is required as a Bearer token on /metrics.
 	// When empty, /metrics answers loopback clients only.
@@ -133,6 +138,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/oidc/config", s.handleOIDCConfig)
 	mux.HandleFunc("GET /api/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /api/oidc/callback", s.handleOIDCCallback)
+	mux.HandleFunc("GET /api/saml/config", s.handleSAMLConfig)
+	mux.HandleFunc("GET /api/saml/metadata", s.handleSAMLMetadata)
+	mux.HandleFunc("GET /api/saml/login", s.handleSAMLLogin)
+	mux.HandleFunc("POST /api/saml/acs", s.handleSAMLACS)
 	mux.HandleFunc("GET /api/me", s.authed(auth.RoleUser, s.handleMe))
 	mux.HandleFunc("POST /api/me/totp/enrol", s.authed(auth.RoleUser, s.handleTOTPEnrol))
 	mux.HandleFunc("POST /api/me/totp/enable", s.authed(auth.RoleUser, s.handleTOTPEnable))

@@ -59,6 +59,8 @@ var schemaAlterations = []string{
 	// index_access: "*" is every index (the default, so upgrades keep the
 	// old behaviour), otherwise a comma list; empty means no index.
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS index_access String DEFAULT '*'`,
+	// auth_source: local, ldap, oidc, or saml. Existing rows are local.
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_source LowCardinality(String) DEFAULT 'local'`,
 	`ALTER TABLE scheduled_scans ADD COLUMN IF NOT EXISTS authorization_ref String DEFAULT ''`,
 	// Installs before the retention sweep ran independently had a 90 day
 	// TTL, which silently capped every index at 90 days. Raise it to the
@@ -115,6 +117,7 @@ var schemaStatements = []string{
 		totp_secret String DEFAULT '',
 		totp_enabled UInt8 DEFAULT 0,
 		index_access String DEFAULT '*',
+		auth_source LowCardinality(String) DEFAULT 'local',
 		created_at  DateTime64(3, 'UTC') DEFAULT now64(3),
 		updated_at  DateTime64(3, 'UTC') DEFAULT now64(3)
 	) ENGINE = ReplacingMergeTree(updated_at) ORDER BY username`,

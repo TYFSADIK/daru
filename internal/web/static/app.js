@@ -220,10 +220,12 @@ let ssoChecked = false;
 function setupSSO() {
   if (ssoChecked) return;
   ssoChecked = true;
-  fetch("/api/oidc/config", { credentials: "same-origin" })
-    .then((r) => r.ok ? r.json() : { enabled: false })
-    .then((c) => { if (c.enabled) document.getElementById("sso-btn").classList.remove("hidden"); })
-    .catch(() => {});
+  for (const [endpoint, id] of [["/api/oidc/config", "sso-btn"], ["/api/saml/config", "saml-btn"]]) {
+    fetch(endpoint, { credentials: "same-origin" })
+      .then((r) => r.ok ? r.json() : { enabled: false })
+      .then((c) => { if (c.enabled) document.getElementById(id).classList.remove("hidden"); })
+      .catch(() => {});
+  }
   const params = new URLSearchParams(location.search);
   if (params.get("sso") === "failed") {
     document.getElementById("login-error").textContent = "Single sign on failed. Your account may not exist in Daru, may be disabled, or your email domain may not be allowed. Ask an administrator.";
@@ -2168,15 +2170,16 @@ async function adminUsers(body) {
   try {
     const r = await API.get("/api/admin/users");
     wrap.innerHTML = "";
-    const t = el("table", { class: "grid" }, el("tr", {}, ...["Username", "Role", "Email", "Index access", "Status", "Actions"].map((h) => el("th", {}, h))));
+    const t = el("table", { class: "grid" }, el("tr", {}, ...["Username", "Role", "Sign-in", "Email", "Index access", "Status", "Actions"].map((h) => el("th", {}, h))));
     for (const u of r.users) {
       t.appendChild(el("tr", {},
         el("td", {}, u.username), el("td", {}, el("span", { class: "role-badge" }, u.role)),
+        el("td", {}, u.auth_source || "local"),
         el("td", {}, u.email || "-"), el("td", {}, indexAccessLabel(u)), el("td", {}, u.disabled ? "disabled" : "active"),
         el("td", {}, el("div", { class: "row-actions" },
           el("button", { class: "btn-ghost btn-sm", onclick: () => changeRole(u) }, "Role"),
           u.role !== "admin" ? el("button", { class: "btn-ghost btn-sm", onclick: () => changeIndexAccess(u, body) }, "Indexes") : null,
-          el("button", { class: "btn-ghost btn-sm", onclick: () => resetPw(u) }, "Password"),
+          (u.auth_source || "local") === "local" ? el("button", { class: "btn-ghost btn-sm", onclick: () => resetPw(u) }, "Password") : null,
           u.username !== ME.username ? el("button", { class: "btn-ghost btn-sm btn-danger", onclick: () => toggleDisabled(u, body) }, u.disabled ? "Enable" : "Disable") : null))));
     }
     wrap.appendChild(t);
@@ -2208,15 +2211,21 @@ async function changeIndexAccess(u, body) {
 }
 
 async function createUserForm(body) {
-  const v = await openModal("Add user", "The password is typed into a masked field and is never shown back.", [
+  const v = await openModal("Add user", "Local accounts sign in with a password, typed into a masked field and never shown back. LDAP, OIDC, and SAML accounts have no Daru password: the identity must come from that provider, with the same username.", [
     { name: "username", label: "Username", type: "text", required: true, placeholder: "e.g. alice", autocomplete: "username" },
-    { name: "password", label: "Password", type: "password", required: true, minlength: 8, autocomplete: "new-password",
-      validate: (val) => val.length < 8 ? "Password must be at least 8 characters." : "" },
+    { name: "auth_source", label: "Sign-in method", type: "select", value: "local",
+      options: [{ value: "local", label: "Daru password" }, { value: "ldap", label: "LDAP directory" }, { value: "oidc", label: "OIDC single sign on" }, { value: "saml", label: "SAML single sign on" }] },
+    { name: "password", label: "Password (Daru password accounts only)", type: "password", minlength: 8, autocomplete: "new-password",
+      validate: (val) => val && val.length < 8 ? "Password must be at least 8 characters." : "" },
     { name: "role", label: "Role", type: "select", value: "user",
       options: [{ value: "user", label: "user" }, { value: "power", label: "power" }, { value: "admin", label: "admin" }] },
   ], "Create user");
   if (!v) return;
-  API.post("/api/admin/users", { username: v.username, password: v.password, role: v.role })
+  const local = v.auth_source === "local";
+  if (local && v.password.length < 8) { toast("A Daru password account needs a password of at least 8 characters.", "error"); return; }
+  const payload = { username: v.username, role: v.role, auth_source: v.auth_source };
+  if (local) payload.password = v.password;
+  API.post("/api/admin/users", payload)
     .then(() => { toast("User created"); adminUsers((body.innerHTML = "", body)); })
     .catch((ex) => toast(ex.message, "error"));
 }

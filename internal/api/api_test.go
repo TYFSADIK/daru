@@ -36,7 +36,7 @@ type fakeCH struct {
 }
 
 type fakeUser struct {
-	role, access string
+	role, access, source string
 }
 
 func newFakeCH() *fakeCH {
@@ -44,8 +44,12 @@ func newFakeCH() *fakeCH {
 }
 
 func (f *fakeCH) addUser(name, role, access, token string) {
+	f.addUserSource(name, role, access, token, "local")
+}
+
+func (f *fakeCH) addUserSource(name, role, access, token, source string) {
 	sum := sha256.Sum256([]byte(token))
-	f.users[name] = fakeUser{role: role, access: access}
+	f.users[name] = fakeUser{role: role, access: access, source: source}
 	f.tokens[hex.EncodeToString(sum[:])] = name
 }
 
@@ -102,12 +106,12 @@ func (f *fakeCH) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.Contains(sql, "password_hash") { // getFull
-			fmt.Fprint(w, compact([]string{"id", "username", "role", "email", "disabled", "password_hash", "totp_secret", "totp_enabled", "index_access"},
-				[][]any{{"00000000-0000-0000-0000-000000000001", name, u.role, "", "0", "x", "", "0", u.access}}))
+			fmt.Fprint(w, compact([]string{"id", "username", "role", "email", "disabled", "password_hash", "totp_secret", "totp_enabled", "index_access", "auth_source"},
+				[][]any{{"00000000-0000-0000-0000-000000000001", name, u.role, "", "0", "x", "", "0", u.access, u.source}}))
 			return
 		}
-		fmt.Fprint(w, compact([]string{"id", "username", "role", "email", "disabled", "index_access"},
-			[][]any{{"00000000-0000-0000-0000-000000000001", name, u.role, "", "0", u.access}}))
+		fmt.Fprint(w, compact([]string{"id", "username", "role", "email", "disabled", "index_access", "auth_source"},
+			[][]any{{"00000000-0000-0000-0000-000000000001", name, u.role, "", "0", u.access, u.source}}))
 	case strings.Contains(sql, "FROM (SELECT DISTINCT name"):
 		var rows [][]any
 		for _, ix := range f.indexes {
@@ -420,7 +424,7 @@ func TestPasswordChangeKeepsIndexAccess(t *testing.T) {
 	for _, q := range f.queries {
 		if strings.HasPrefix(q, "INSERT INTO users") {
 			found = true
-			if !strings.Contains(q, "index_access") || !strings.Contains(q, "'main', now64(3)") {
+			if !strings.Contains(q, "index_access") || !strings.Contains(q, "'main', 'local', now64(3)") {
 				t.Errorf("user row rewrite dropped index_access: %s", q)
 			}
 		}
