@@ -269,9 +269,20 @@ v3.4.15 and `github.com/crewjam/saml` v0.6.3.
 
 ## Remaining honest limits
 
-- govulncheck over the new modules has not been run in this session (the
-  session's permissions blocked downloading it). CI runs it on every push;
-  locally: `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`.
+- govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on
+  Go 1.27 syntax, so CI's `@latest` is the right choice) reports:
+  - GO-2026-6909 in github.com/crewjam/saml, reached through
+    `ParseResponse`, "fixed in: N/A". The advisory text says "through
+    v0.5.1"; the database marks all versions. Checked in the v0.6.3 source
+    Daru uses: `Assertion.Issuer` is a value, not a pointer (no nil
+    dereference possible), and `Subject.NameID` is tagged with the SAML
+    assertion namespace (a foreign-namespace NameID is not read). Both
+    described bugs are absent, so this is a database lag, not a live issue.
+    Daru's panic recovery would contain a panic to one 500 response anyway.
+    Re-run govulncheck after the next vulndb update; it should clear.
+  - GO-2026-5932, golang.org/x/crypto/openpgp is unmaintained: a module
+    level finding only. Daru does not import openpgp, so it is not
+    reachable. It clears with the next tagged x/crypto release.
 - Go is pinned to 1.27.4 (go.mod, Dockerfile, CI, install.sh, install.ps1),
   with every SHA-256 checksum taken from go.dev/dl on 2026-11-13. When Go
   releases the next patch, update all of them together; CI checks they agree.
