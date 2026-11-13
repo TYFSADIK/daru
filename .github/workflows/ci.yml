@@ -56,9 +56,11 @@ jobs:
           # Fails on any reachable vulnerability not reviewed in .govulncheck-allow.
           ./scripts/govulncheck.sh
       - name: gosec
-        uses: securego/gosec@master
-        with:
-          args: ./...
+        # Installed with the Go from setup-go: the gosec action's own image
+        # ships an older Go than go.mod requires and cannot load the code.
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -quiet ./...
 
   cross-build:
     runs-on: ubuntu-latest
