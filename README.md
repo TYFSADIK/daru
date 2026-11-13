@@ -51,43 +51,44 @@ security tools, all on hardware you control.
 
 ## Screenshots
 
+All screenshots use made-up demo data (10.0.0.x hosts, example.com
+domains), so nothing here comes from a real network.
+
 **Search with the Daru pipeline language and live charts:**
 
-![Search](docs/screenshot-search.png)
+![Search with a timechart](docs/screenshot-search.png)
 
-**Recon and scanning, with an authorization gate on every scan:**
+**Dashboards of saved panels, with share links and PDF and CSV export:**
 
-![Recon](docs/screenshot-recon.png)
-
-**Live network device discovery:**
-
-![Network](docs/screenshot-network.png)
+![Dashboard](docs/screenshot-dashboard.png)
 
 **Light theme, one click away:**
 
 ![Search in light theme](docs/screenshot-search-light.png)
 
-**Live Monitor, real-time packet capture with a Host/SNI column, protocol
-breakdown, top talkers, and the domains each device is contacting (no root or
-wireshark group needed; captures via tcpdump and decodes with tshark):**
+<table>
+<tr>
+<td width="50%"><b>Scheduled alerts and their firing history</b><br><img src="docs/screenshot-alerts.png" alt="Alerts"></td>
+<td width="50%"><b>Notable-event triage with MITRE ATT&amp;CK coverage</b><br><img src="docs/screenshot-security.png" alt="Security"></td>
+</tr>
+<tr>
+<td><b>Network device inventory from discovery and deep scans</b><br><img src="docs/screenshot-network.png" alt="Network"></td>
+<td><b>Per-device intelligence: identity, ports, and every finding</b><br><img src="docs/screenshot-device.png" alt="Device intelligence"></td>
+</tr>
+<tr>
+<td><b>Recon posture: findings by severity and top hosts by risk</b><br><img src="docs/screenshot-recon.png" alt="Recon overview"></td>
+<td><b>Catalog of all 59 tools, grouped by category</b><br><img src="docs/screenshot-tool-catalog.png" alt="Tool catalog"></td>
+</tr>
+<tr>
+<td><b>A dashboard and scan history for every tool</b><br><img src="docs/screenshot-recon-dashboard.png" alt="Per-tool dashboard"></td>
+<td><b>Sign in with a local account, LDAP, OIDC, or SAML</b><br><img src="docs/screenshot-login.png" alt="Sign in"></td>
+</tr>
+</table>
+
+**Live Monitor: packet capture with a Host/SNI column, protocol breakdown,
+top talkers, and the domains each device contacts:**
 
 ![Live capture](docs/screenshot-live-capture.png)
-
-**Per-tool dashboards, every one of the 51 recon tools has its own dashboard
-and a catalog card showing availability:**
-
-![Tool catalog](docs/screenshot-tool-catalog.png)
-
-**Per-device intelligence, everything Daru has observed about a host
-(identity, OS, open ports, every finding from every tool), with HTML and CSV
-report export:**
-
-![Device intelligence](docs/screenshot-device.png)
-
-**Security posture overview, findings by severity, top hosts by risk, and
-recent high-severity findings across all scans:**
-
-![Posture overview](docs/screenshot-posture.png)
 
 ## Live Monitor
 
@@ -168,8 +169,6 @@ installer.
 - **Windows**: the Daru binary and the web UI run, but most recon tooling
   (nmap, masscan, tcpdump, tshark, arp-scan) is Linux-only, so Recon and Live
   Monitor are limited on Windows.
-- **Raspberry Pi**: use a 64-bit OS with 4 GB+ RAM; ClickHouse runs natively on
-  arm64.
 - **No Docker?** Install ClickHouse natively (its official installer is
   `curl https://clickhouse.com/ | sh`), or point `DARU_CLICKHOUSE_URL` at an
   existing instance.
@@ -213,17 +212,24 @@ your `PATH`, and run `daru serve`.
   (**Admin > Users > Indexes**, or `POST /api/admin/users/{name}/indexes`).
   Searches, the index list, and that user's scheduled alerts only read the
   permitted indexes. Admins always read every index.
-- **Retention**: per-index retention in days (up to 3650), enforced by a sweep that drops
-  expired day partitions every 6 hours, independent of the alert scheduler.
+- **Indexes and retention**: an index is created when an admin adds it
+  (**Admin > Indexes**) or creates an ingest token for it, with a default
+  of 90 days. Each index keeps its own retention (up to 3650 days), enforced
+  by a sweep that drops expired day partitions every 6 hours. Defaults
+  applied at startup never overwrite a retention an admin has set.
 - **Limits**: a global ingest rate limit (events per second) plus per user
   quotas on running scans, scans per hour, and scheduled scans.
 - **Operations**: `/api/health` (liveness), `/ready` (ClickHouse reachable),
   and `/metrics` (Prometheus text format).
-- **Recon**: run authorized security tools (nmap, masscan, naabu, zmap, nbtscan,
-  nuclei, nikto, httpx, whatweb, gobuster, ffuf, katana, sqlmap, subfinder,
-  amass, dnsenum, fierce, sslscan, testssl, smbmap, enum4linux, snmpwalk,
-  tshark, and more) and native collectors (crt.sh, DNS, TLS, RDAP) and pull
-  their structured findings into search.
+- **Recon**: 59 authorized security tools in 8 categories, each pulling
+  structured findings into search: port and host discovery (nmap, masscan,
+  naabu, rustscan, zmap, and more), web scanning (httpx, katana, ffuf,
+  gobuster, wapiti, wpscan, sqlmap, and more), DNS and subdomains (amass,
+  subfinder, dnsx, dnsrecon, dnstwist, and more), vulnerability scanning
+  (nuclei, nikto, OpenVAS, trufflehog, and more), service enumeration (SMB
+  and SNMP tools), OSINT (theHarvester, SpiderFoot, recon-ng, whois, RDAP),
+  TLS (testssl, sslyze, sslscan), and traffic analysis (tcpdump, tshark).
+  Native collectors (crt.sh, DNS, TLS, RDAP) need no external binary.
 - **Network**: discover live devices on your LAN with IP, hostname, MAC,
   vendor, and OS. One-click **deep scan (god mode)** fuses discovery, nmap
   OS/service detection, and NetBIOS names into a full profile per device.
@@ -434,7 +440,10 @@ export DARU_CLICKHOUSE_PASSWORD=yourpassword
 
 ## Sending logs
 
-The HEC endpoint accepts the same JSON shape as Splunk's HTTP Event Collector:
+Each ingest token writes to one index, its default index, which Daru
+creates when the token is made. Create tokens under **Admin > Ingest
+tokens**. The HEC endpoint accepts the same JSON shape as Splunk's HTTP
+Event Collector:
 
 ```bash
 curl http://localhost:8088/services/collector \
@@ -626,9 +635,11 @@ If Daru is useful to you, a star helps other people find it.
 Daru is under active development. Working today: ingest (HEC, raw, JSON), the
 query language and compiler, the search UI with charts, saved searches,
 dashboards, scheduled alerts, the notable-event queue, user and token
-administration, LDAP, OIDC, and SAML sign in, per-index access control and retention, ingest rate limits
-and scan quotas, readiness and Prometheus metrics, signed webhooks, the recon
-subsystem, and network discovery.
+administration, LDAP, OIDC, and SAML sign in, per-index access control and
+retention, ingest rate limits and scan quotas, readiness and Prometheus
+metrics, signed webhooks, the recon subsystem with 59 tools, network
+discovery and per-device intelligence, Live Monitor packet capture, and
+offline PCAP analysis.
 
 ## License
 
