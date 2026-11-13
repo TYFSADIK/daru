@@ -88,11 +88,45 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"'\/]/g, (c) => ({ "&
 const fmtNum = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const roleAtLeast = (r, min) => ({ user: 1, power: 2, admin: 3 }[r] || 0) >= ({ user: 1, power: 2, admin: 3 }[min] || 0);
 
+// parseTime reads ClickHouse timestamps ("2026-11-06 12:00:00.000", UTC with
+// no zone) and ISO strings. It returns null for anything else.
+function parseTime(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) return null;
+  const iso = s.replace(" ", "T");
+  const d = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + "Z");
+  return isNaN(d.getTime()) || d.getUTCFullYear() < 1971 ? null : d;
+}
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// fmtTime shows a timestamp in the viewer's local time, to the second.
 function fmtTime(v) {
-  if (v == null) return "";
-  let s = String(v);
-  // ClickHouse returns "2026-11-06 12:00:00.000"; show compactly.
-  return s.replace("T", " ").replace("Z", "").slice(0, 23);
+  const d = parseTime(v);
+  if (!d) return v == null ? "" : String(v);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// timeAgo is a short relative time: "just now", "12m ago", "3h ago", "2d ago".
+function timeAgo(v) {
+  const d = parseTime(v);
+  if (!d) return "";
+  const sec = Math.round((Date.now() - d.getTime()) / 1000);
+  if (sec < 0) return "in the future";
+  if (sec < 45) return "just now";
+  if (sec < 3600) return Math.round(sec / 60) + "m ago";
+  if (sec < 86400) return Math.round(sec / 3600) + "h ago";
+  if (sec < 86400 * 30) return Math.round(sec / 86400) + "d ago";
+  return fmtTime(v).slice(0, 10);
+}
+
+// timeTd is a table cell with the relative time and the exact local time on
+// hover. Empty or epoch-zero values show the fallback text.
+function timeTd(v, fallback = "-") {
+  const d = parseTime(v);
+  if (!d) return el("td", { class: "nowrap" }, fallback);
+  return el("td", { class: "time-rel", title: fmtTime(v) + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ")" },
+    timeAgo(v), el("small", {}, fmtTime(v).slice(11, 16)));
 }
 
 function toast(msg, kind = "info") {
@@ -285,7 +319,36 @@ const ROUTES = [
   { path: "#/live", label: "Live Monitor", icon: "⦿", min: "user", render: renderLive },
   { path: "#/recon", label: "Recon", icon: "◎", min: "user", render: renderRecon },
   { path: "#/admin", label: "Admin", icon: "⚙", min: "admin", render: renderAdmin },
+  { path: "#/account", label: "Account", icon: "◔", min: "user", render: renderAccount },
 ];
+
+// Sidebar icons: one stroke style, drawn as SVG through the DOM so the strict
+// CSP allows them. Keys are route paths; shapes are [tag, attributes].
+const NAV_ICONS = {
+  "#/search": [["circle", { cx: 11, cy: 11, r: 7 }], ["path", { d: "M20 20l-4-4" }]],
+  "#/dashboards": [["rect", { x: 3, y: 3, width: 7, height: 9, rx: 1.5 }], ["rect", { x: 14, y: 3, width: 7, height: 5, rx: 1.5 }], ["rect", { x: 14, y: 12, width: 7, height: 9, rx: 1.5 }], ["rect", { x: 3, y: 16, width: 7, height: 5, rx: 1.5 }]],
+  "#/alerts": [["path", { d: "M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" }], ["path", { d: "M10 20a2 2 0 0 0 4 0" }]],
+  "#/security": [["path", { d: "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z" }], ["path", { d: "M9 12l2 2 4-4" }]],
+  "#/network": [["circle", { cx: 12, cy: 5, r: 2.2 }], ["circle", { cx: 5, cy: 19, r: 2.2 }], ["circle", { cx: 19, cy: 19, r: 2.2 }], ["path", { d: "M12 7.2v4.3M12 11.5L6.3 17M12 11.5l5.7 5.5" }]],
+  "#/live": [["path", { d: "M3 12h4l3-8 4 16 3-8h4" }]],
+  "#/recon": [["circle", { cx: 12, cy: 12, r: 8.5 }], ["circle", { cx: 12, cy: 12, r: 4.5 }], ["circle", { cx: 12, cy: 12, r: 0.8 }]],
+  "#/admin": [["path", { d: "M4 7h10M18 7h2M4 17h2M10 17h10" }], ["circle", { cx: 16, cy: 7, r: 2 }], ["circle", { cx: 8, cy: 17, r: 2 }]],
+  "#/account": [["circle", { cx: 12, cy: 8.5, r: 3.8 }], ["path", { d: "M4.5 20c1.3-3.6 4.2-5.3 7.5-5.3s6.2 1.7 7.5 5.3" }]],
+};
+function navIcon(path, fallback) {
+  const shapes = NAV_ICONS[path];
+  if (!shapes) return el("span", { class: "ic" }, fallback);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of shapes) {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    svg.appendChild(n);
+  }
+  return el("span", { class: "ic" }, svg);
+}
 
 function buildNav() {
   const nav = document.getElementById("nav");
@@ -293,7 +356,7 @@ function buildNav() {
   for (const r of ROUTES) {
     if (!roleAtLeast(ME.role, r.min)) continue;
     nav.appendChild(el("a", { href: r.path, "data-path": r.path },
-      el("span", { class: "ic" }, r.icon), r.label));
+      navIcon(r.path, r.icon), r.label));
   }
 }
 
@@ -460,6 +523,9 @@ function renderResults(r, panel, meta, fieldsPanel, box, rerun) {
   } else {
     fieldsPanel.appendChild(el("div", { class: "empty", style: "padding:14px" }, "No fields"));
   }
+  // Transforming searches (stats, timechart) have no field list: give the
+  // results the full width instead of an empty side panel.
+  if (fieldsPanel.parentElement) fieldsPanel.parentElement.classList.toggle("no-fields", !(r.fields && r.fields.length));
 
   panel.innerHTML = "";
   const isChart = r.kind === "timechart" || r.kind === "chart";
@@ -522,44 +588,68 @@ function renderTable(r) {
   return el("div", { class: "table-scroll" }, table);
 }
 
+// niceMax rounds a chart maximum up to 1, 2, or 5 times a power of ten, so
+// the axis reads 0 / 250 / 500 / 750 / 1,000 rather than odd values.
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (v <= m * p) return m * p;
+  return 10 * p;
+}
+
 function renderViz(r) {
   const cols = r.columns || [];
   const series = r.series && r.series.length ? r.series : cols.filter((c) => c !== "_time" && c !== (cols[0]));
   if (!r.rows.length) return el("div", { class: "empty" }, "Nothing to chart.");
   const xKey = r.kind === "timechart" ? "_time" : cols[0];
+  const isTime = xKey === "_time";
+  const xLabel = (v) => isTime ? fmtTime(v).slice(5, 16) : String(v == null ? "" : v);
   let max = 0;
   for (const row of r.rows) for (const s of series) max = Math.max(max, Number(row[s]) || 0);
-  max = max || 1;
+  const top = niceMax(max);
 
   const palette = ["#5e81f4", "#4bb4a0", "#d6a24b", "#c97b6a", "#8b86d4", "#5aa9d6", "#a77bbf", "#6aa86b", "#c98aa8", "#7f8ca3", "#4e9e86", "#b06f6f"];
   const chart = el("div", { class: "chart" });
-  // Legend.
-  const legend = el("div", { style: "display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted)" });
+  const legend = el("div", { class: "viz-legend" });
   series.forEach((s, i) => legend.appendChild(el("span", {},
-    el("span", { style: `display:inline-block;width:10px;height:10px;border-radius:2px;background:${palette[i % palette.length]};margin-right:6px` }), s)));
+    el("span", { class: "viz-swatch", style: `background:${palette[i % palette.length]}` }), s)));
   chart.appendChild(legend);
 
-  // Grouped bars per row.
-  const plot = el("div", { style: "display:flex;align-items:flex-end;gap:6px;height:220px;border-bottom:1px solid var(--border);padding-bottom:0" });
+  // Y axis labels top to bottom, and matching gridlines.
+  const viz = el("div", { class: "viz" });
+  const yAxis = el("div", { class: "viz-y" });
+  const plot = el("div", { class: "viz-plot" });
+  for (let i = 4; i >= 0; i--) {
+    yAxis.appendChild(el("span", {}, fmtNum((top * i) / 4)));
+    if (i > 0 && i < 4) plot.appendChild(el("div", { class: "viz-grid", style: `top:${100 - i * 25}%` }));
+  }
+  const bars = el("div", { class: "viz-bars" });
   const show = r.rows.slice(0, 60);
   for (const row of show) {
-    const group = el("div", { style: "flex:1;display:flex;align-items:flex-end;gap:1px;height:100%", title: String(row[xKey]) });
+    const label = isTime ? fmtTime(row[xKey]) : xLabel(row[xKey]);
+    const group = el("div", { style: "flex:1;display:flex;align-items:flex-end;gap:1px;height:100%;min-width:0" });
     for (let i = 0; i < series.length; i++) {
       const v = Number(row[series[i]]) || 0;
       group.appendChild(el("div", {
-        style: `flex:1;height:${(v / max) * 100}%;background:${palette[i % palette.length]};border-radius:2px 2px 0 0;min-height:${v > 0 ? 2 : 0}px`,
-        title: `${series[i]}: ${fmtNum(v)}`,
+        style: `flex:1;height:${(v / top) * 100}%;background:${palette[i % palette.length]};border-radius:2px 2px 0 0;min-height:${v > 0 ? 2 : 0}px`,
+        title: `${label}\n${series[i]}: ${fmtNum(v)}`,
       }));
     }
-    plot.appendChild(group);
+    bars.appendChild(group);
   }
-  chart.appendChild(plot);
-  const axis = el("div", { style: "display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:6px;font-family:var(--mono)" });
-  if (show.length) {
-    axis.appendChild(el("span", {}, fmtTime(show[0][xKey])));
-    axis.appendChild(el("span", {}, fmtTime(show[show.length - 1][xKey])));
+  plot.appendChild(bars);
+  viz.appendChild(yAxis);
+  viz.appendChild(plot);
+  // Up to five evenly spaced x labels.
+  const xAxis = el("div", { class: "viz-x" });
+  const ticks = Math.min(5, show.length);
+  for (let t = 0; t < ticks; t++) {
+    const idx = ticks === 1 ? 0 : Math.round((t * (show.length - 1)) / (ticks - 1));
+    xAxis.appendChild(el("span", {}, xLabel(show[idx][xKey])));
   }
-  chart.appendChild(axis);
+  viz.appendChild(xAxis);
+  chart.appendChild(viz);
+  if (r.rows.length > show.length) chart.appendChild(el("div", { class: "meta", style: "margin-top:8px" }, `Showing the first ${show.length} of ${fmtNum(r.rows.length)} rows.`));
   return chart;
 }
 
@@ -686,7 +776,7 @@ async function renderAlerts(view) {
     else {
       const t = el("table", { class: "grid" }, el("tr", {}, ...["Time", "Alert", "Severity", "Results", "Detail"].map((x) => el("th", {}, x))));
       for (const f of h.history) t.appendChild(el("tr", {},
-        el("td", {}, fmtTime(f.fired_at)), el("td", {}, f.search_name),
+        timeTd(f.fired_at), el("td", {}, f.search_name),
         el("td", {}, el("span", { class: "badge sev-" + f.severity }, f.severity)),
         el("td", { class: "num" }, String(f.result_count)), el("td", {}, f.detail)));
       histWrap.appendChild(t);
@@ -718,29 +808,10 @@ async function newAlert() {
 // ===================== SECURITY =====================
 async function renderSecurity(view) {
   view.appendChild(pageHead("Security", "Notable events and incident triage"));
-  const totpCard = el("div", { class: "card", style: "margin-bottom:14px" });
-  totpCard.appendChild(el("h3", { style: "margin:0 0 6px" }, "Two-factor authentication (TOTP)"));
-  totpCard.appendChild(el("div", { class: "meta" }, (ME && ME.totp_enabled ? "TOTP is enabled for your account." : "TOTP is off. Enable it with an authenticator app for a second factor at login.")));
-  const totpBtns = el("div", { style: "display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" });
-  if (ME && ME.totp_enabled) {
-    totpBtns.appendChild(el("button", { class: "btn-ghost", onclick: async () => {
-      const v = await openModal("Disable TOTP", "Enter your current authenticator code to disable TOTP.", [{ name: "code", label: "Authenticator code", type: "text", required: true }], "Disable TOTP");
-      if (!v) return;
-      try { await API.post("/api/me/totp/disable", { code: v.code }); toast("TOTP disabled"); ME.totp_enabled = false; route(); } catch (ex) { toast(ex.message, "error"); }
-    } }, "Disable TOTP"));
-  } else {
-    totpBtns.appendChild(el("button", { class: "btn-primary", onclick: async () => {
-      try {
-        const r = await API.post("/api/me/totp/enrol", {});
-        const v = await openModal("Enable TOTP", "Scan this secret into your authenticator app, then enter the 6-digit code. Secret: " + (r.secret || ""), [{ name: "code", label: "Authenticator code", type: "text", required: true }], "Enable TOTP");
-        if (!v) return;
-        await API.post("/api/me/totp/enable", { code: v.code });
-        toast("TOTP enabled"); ME.totp_enabled = true; route();
-      } catch (ex) { toast(ex.message, "error"); }
-    } }, "Enable TOTP"));
+  if (ME && !ME.totp_enabled) {
+    view.appendChild(el("div", { class: "notice", style: "border-left-color:var(--amber)" },
+      "Two-factor authentication is off for your account. ", el("a", { href: "#/account" }, "Turn it on in Account"), "."));
   }
-  totpCard.appendChild(totpBtns);
-  view.appendChild(totpCard);
   const stats = el("div", { class: "stat-row" });
   const wrap = el("div", {}, el("div", { class: "spinner" }, "Loading..."));
   view.appendChild(stats);
@@ -748,19 +819,20 @@ async function renderSecurity(view) {
   try {
     const r = await API.get("/api/notable");
     const items = r.notable || [];
-    const bySev = { high: 0, medium: 0, low: 0 };
+    const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
     let open = 0;
     for (const n of items) { bySev[n.severity] = (bySev[n.severity] || 0) + 1; if (n.status !== "closed") open++; }
     stats.appendChild(statCard(items.length, "Total notable"));
     stats.appendChild(statCard(open, "Open"));
-    stats.appendChild(statCard(bySev.high || 0, "High severity"));
+    stats.appendChild(statCard(bySev.critical || 0, "Critical"));
+    stats.appendChild(statCard(bySev.high || 0, "High"));
     view.appendChild(renderMitrePanel(items));
     wrap.innerHTML = "";
     if (!items.length) { wrap.appendChild(el("div", { class: "empty" }, "No notable events. Create a security alert to populate this queue.")); return; }
     const t = el("table", { class: "grid" }, el("tr", {}, ...["Time", "Rule", "Severity", "Status", "Entity", "MITRE", ""].map((h) => el("th", {}, h))));
     for (const n of items) {
       t.appendChild(el("tr", {},
-        el("td", {}, fmtTime(n.created_at)), el("td", {}, n.rule_name),
+        timeTd(n.created_at), el("td", {}, n.rule_name),
         el("td", {}, el("span", { class: "badge sev-" + n.severity }, n.severity)),
         el("td", {}, n.status), el("td", {}, n.entity || "-"), el("td", {}, n.mitre || "-"),
         el("td", {}, roleAtLeast(ME.role, "power") ? statusSelect(n, view) : null)));
@@ -808,14 +880,13 @@ function renderMitrePanel(items) {
   card.appendChild(el("div", { class: "meta", style: "margin-bottom:10px" },
     total ? mapped + " of " + total + " notable events carry a MITRE mapping." : "No notable events yet. MITRE mappings come from the mitre field on notable events."));
   if (!total) return card;
-  const max = Math.max(1, ...Object.values(groups).map((g) => g.length));
   for (const name of Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length)) {
     const rows = groups[name];
     const row = el("div", { style: "margin:8px 0" });
     row.appendChild(el("div", { style: "display:flex;justify-content:space-between;font-size:12.5px" },
-      el("span", {}, name), el("span", { style: "color:var(--muted)" }, String(rows.length))));
+      el("span", {}, name), el("span", { style: "color:var(--muted)" }, rows.length + " · " + Math.round((rows.length / total) * 100) + "%")));
     const bar = el("div", { style: "height:6px;border-radius:3px;background:var(--border);margin-top:3px;overflow:hidden" },
-      el("div", { style: `height:100%;width:${Math.round((rows.length / max) * 100)}%;background:var(--accent)` }));
+      el("div", { style: `height:100%;width:${Math.max(2, Math.round((rows.length / total) * 100))}%;background:var(--accent)` }));
     row.appendChild(bar);
     card.appendChild(row);
   }
@@ -863,7 +934,7 @@ async function renderNetwork(view) {
   view.appendChild(netLine);
   const stats = el("div", { class: "stat-row" });
   view.appendChild(stats);
-  const filterIn = el("input", { placeholder: "filter devices (IP, hostname, MAC, vendor, OS)…", style: "margin-bottom:10px;max-width:420px" });
+  const filterIn = el("input", { placeholder: "filter devices (IP, hostname, MAC, vendor, OS)…", style: "margin-bottom:10px;width:100%;max-width:420px", "aria-label": "Filter devices" });
   view.appendChild(filterIn);
   const wrap = el("div", {}, el("div", { class: "spinner" }, "Loading devices..."));
   view.appendChild(wrap);
@@ -901,10 +972,10 @@ async function renderNetwork(view) {
         else if (isStale(a)) ipCell.appendChild(el("span", { class: "badge", style: "margin-left:6px;font-size:10px;background:var(--border);color:var(--muted)", title: "Not seen in over 24h" }, "stale"));
         const row = el("tr", { style: "cursor:pointer", title: "Open device intelligence" },
           ipCell,
-          el("td", {}, a.hostname || "-"),
+          el("td", { class: "nowrap" }, a.hostname || "-"),
           el("td", {}, a.mac || "-"), el("td", {}, a.vendor || "-"),
           el("td", {}, a.os || "-"), el("td", {}, a.open_ports || "-"),
-          el("td", {}, a.source), el("td", {}, fmtTime(a.last_seen)));
+          el("td", { class: "nowrap" }, a.source), timeTd(a.last_seen));
       row.addEventListener("click", (e) => { if (e.target.tagName !== "A") location.hash = "#/device/" + encodeURIComponent(a.ip); });
       t.appendChild(row);
     }
@@ -1033,8 +1104,8 @@ async function renderRecon(view) {
       const t = el("table", { class: "grid" }, el("tr", {}, ...["Tool", "Target", "Cron", "Last run", ""].map((h) => el("th", {}, h))));
       for (const sc of list) {
         t.appendChild(el("tr", {},
-          el("td", {}, sc.connector), el("td", {}, sc.target || "local"), el("td", {}, sc.cron),
-          el("td", {}, sc.last_run && !sc.last_run.startsWith("1970") && !sc.last_run.startsWith("0000") ? fmtTime(sc.last_run) : "never"),
+          el("td", { class: "nowrap" }, sc.connector), el("td", {}, sc.target || "local"), el("td", { class: "nowrap" }, sc.cron),
+          timeTd(sc.last_run, "never"),
           el("td", {}, el("button", { class: "btn-ghost btn-sm btn-danger", onclick: async () => { if (await confirmDialog("Delete scheduled scan " + sc.connector + " on " + (sc.target || "local") + "?")) { await API.del("/api/recon/schedules/" + sc.id); loadSchedules(wrap); } } }, "Delete"))));
       }
       wrap.appendChild(t);
@@ -1100,7 +1171,7 @@ async function renderRecon(view) {
       const t = el("table", { class: "grid" }, el("tr", {}, ...["Started", "Tool", "Target", "Profile", "Status", "Findings", ""].map((h) => el("th", {}, h))));
       for (const sc of r.scans) {
         t.appendChild(el("tr", {},
-          el("td", {}, fmtTime(sc.started_at)), el("td", {}, sc.connector), el("td", {}, sc.target),
+          timeTd(sc.started_at), el("td", { class: "nowrap" }, sc.connector), el("td", {}, sc.target),
           el("td", {}, sc.profile), el("td", {}, statusBadge(sc.status)),
           el("td", { class: "num" }, String(sc.finding_count)),
           el("td", {}, el("button", { class: "btn-ghost btn-sm", onclick: () => viewFindings(sc) }, "View"))));
@@ -1200,9 +1271,9 @@ async function renderPosture(wrap) {
     for (const f of ov.recent_high.slice(0, 12)) {
       t.appendChild(el("tr", {},
         el("td", {}, el("span", { class: "badge sev-" + f.severity }, f.severity)),
-        el("td", {}, f.target || "-"),
+        el("td", { class: "nowrap" }, f.target || "-"),
         el("td", { style: "white-space:normal" }, f.title),
-        el("td", {}, (f.fields && f.fields.connector) || "-")));
+        el("td", { class: "nowrap" }, (f.fields && f.fields.connector) || "-")));
     }
     rc.appendChild(t);
   }
@@ -1520,7 +1591,7 @@ async function renderToolPage(view, name) {
       const t = el("table", { class: "grid" }, el("tr", {}, ...["Started", "Target", "Profile", "Status", "Findings", ""].map((h) => el("th", {}, h))));
       for (const sc of scans) {
         t.appendChild(el("tr", {},
-          el("td", {}, fmtTime(sc.started_at)), el("td", {}, sc.target || "local"), el("td", {}, sc.profile),
+          timeTd(sc.started_at), el("td", {}, sc.target || "local"), el("td", {}, sc.profile),
           el("td", {}, statusBadge(sc.status)), el("td", { class: "num" }, String(sc.finding_count)),
           el("td", {}, el("button", { class: "btn-ghost btn-sm", onclick: () => viewFindings(sc) }, "View"))));
       }
@@ -2095,6 +2166,47 @@ function miniBreakdown(title, counts, total) {
     card.appendChild(row);
   }
   return card;
+}
+
+// ===================== ACCOUNT =====================
+async function renderAccount(view) {
+  view.appendChild(pageHead("Account", "Your profile and sign-in security"));
+  const grid = el("div", { class: "account-grid" });
+  view.appendChild(grid);
+
+  const profile = el("div", { class: "card" });
+  profile.appendChild(el("h3", { style: "margin:0 0 12px" }, "Profile"));
+  const kv = el("dl", { class: "kv" });
+  for (const [k, v] of [["Username", ME.username], ["Role", ME.role], ["Two-factor", ME.totp_enabled ? "on" : "off"],
+    ["Time zone", Intl.DateTimeFormat().resolvedOptions().timeZone]]) {
+    kv.appendChild(el("dt", {}, k)); kv.appendChild(el("dd", {}, String(v)));
+  }
+  profile.appendChild(kv);
+  grid.appendChild(profile);
+
+  const totpCard = el("div", { class: "card", style: "" });
+  totpCard.appendChild(el("h3", { style: "margin:0 0 6px" }, "Two-factor authentication (TOTP)"));
+  totpCard.appendChild(el("div", { class: "meta" }, (ME && ME.totp_enabled ? "TOTP is enabled for your account." : "TOTP is off. Enable it with an authenticator app for a second factor at login.")));
+  const totpBtns = el("div", { style: "display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" });
+  if (ME && ME.totp_enabled) {
+    totpBtns.appendChild(el("button", { class: "btn-ghost", onclick: async () => {
+      const v = await openModal("Disable TOTP", "Enter your current authenticator code to disable TOTP.", [{ name: "code", label: "Authenticator code", type: "text", required: true }], "Disable TOTP");
+      if (!v) return;
+      try { await API.post("/api/me/totp/disable", { code: v.code }); toast("TOTP disabled"); ME.totp_enabled = false; route(); } catch (ex) { toast(ex.message, "error"); }
+    } }, "Disable TOTP"));
+  } else {
+    totpBtns.appendChild(el("button", { class: "btn-primary", onclick: async () => {
+      try {
+        const r = await API.post("/api/me/totp/enrol", {});
+        const v = await openModal("Enable TOTP", "Scan this secret into your authenticator app, then enter the 6-digit code. Secret: " + (r.secret || ""), [{ name: "code", label: "Authenticator code", type: "text", required: true }], "Enable TOTP");
+        if (!v) return;
+        await API.post("/api/me/totp/enable", { code: v.code });
+        toast("TOTP enabled"); ME.totp_enabled = true; route();
+      } catch (ex) { toast(ex.message, "error"); }
+    } }, "Enable TOTP"));
+  }
+  totpCard.appendChild(totpBtns);
+  grid.appendChild(totpCard);
 }
 
 // ===================== ADMIN =====================

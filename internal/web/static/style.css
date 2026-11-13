@@ -7,7 +7,9 @@
   --radius-lg: 10px;
 }
 
-/* Dark enterprise theme (default) */
+/* Dark enterprise theme (default). Text colors are measured to pass WCAG AA
+   (4.5:1) on --bg, --panel, --panel-2, and the tinted badge backgrounds;
+   --accent-solid is the button fill that white text passes on. */
 :root, :root[data-theme="dark"] {
   --bg: #0f172a;
   --bg-2: #141e32;
@@ -17,13 +19,14 @@
   --border-soft: #1f2c44;
   --text: #dbe3ef;
   --text-strong: #f1f5fb;
-  --muted: #8495b0;
-  --accent: #5b8def;
+  --muted: #aab5c8;
+  --accent: #94b5f5;
+  --accent-solid: #4a72c1;
   --accent-weak: #22345a;
-  --info: #4aa8d8;
-  --green: #45b887;
-  --amber: #d59b3f;
-  --red: #e07070;
+  --info: #7abfe2;
+  --green: #69c69e;
+  --amber: #dcac5f;
+  --red: #ea9f9f;
   --on-accent: #ffffff;
   --shadow: 0 10px 30px rgba(0,0,0,0.35);
 }
@@ -38,13 +41,14 @@
   --border-soft: #e5e9f0;
   --text: #28344a;
   --text-strong: #141c2b;
-  --muted: #5e6b80;
-  --accent: #2f6fe0;
+  --muted: #535f71;
+  --accent: #265ab5;
+  --accent-solid: #2f6fe0;
   --accent-weak: #e4edfc;
-  --info: #1a84b8;
-  --green: #1f9d63;
-  --amber: #b9791d;
-  --red: #d04848;
+  --info: #136188;
+  --green: #156a43;
+  --amber: #805414;
+  --red: #9e3737;
   --on-accent: #ffffff;
   --shadow: 0 8px 24px rgba(31,42,64,0.10);
 }
@@ -72,12 +76,13 @@ button { font-family: inherit; cursor: pointer; }
 .nav { display: flex; flex-direction: column; gap: 1px; flex: 1; }
 .nav a {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-  border-radius: var(--radius); color: var(--muted); font-weight: 500; font-size: 13.5px;
+  border-radius: var(--radius); color: var(--muted); font-weight: 500; font-size: 14px;
 }
 .nav a:hover { background: var(--panel); color: var(--text); text-decoration: none; }
 .nav a.active { background: var(--accent-weak); color: var(--accent); }
 .nav a.active .ic { opacity: 1; }
-.nav a .ic { width: 16px; text-align: center; opacity: 0.75; font-size: 14px; }
+.nav a .ic { width: 18px; height: 18px; flex: none; opacity: 0.8; display: inline-flex; align-items: center; justify-content: center; }
+.nav a .ic svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .sidebar-foot { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .user-chip { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
 .role-badge { background: var(--accent-weak); color: var(--accent); padding: 1px 7px; border-radius: 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
@@ -97,12 +102,12 @@ button { font-family: inherit; cursor: pointer; }
 .login-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 30px; width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
 
 /* Skip link: visible only on keyboard focus. */
-.skip-link { position: absolute; left: -9999px; top: 0; background: var(--accent); color: var(--on-accent); padding: 8px 14px; border-radius: 0 0 6px 0; z-index: 100; }
+.skip-link { position: absolute; left: -9999px; top: 0; background: var(--accent-solid); color: var(--on-accent); padding: 8px 14px; border-radius: 0 0 6px 0; z-index: 100; }
 .skip-link:focus { left: 0; }
 
 /* Mobile navigation toggle. Hidden on desktop, shown under 820px. */
 .nav-toggle { display: none; position: fixed; top: 10px; left: 10px; z-index: 20; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); width: 40px; height: 40px; font-size: 18px; line-height: 1; }
-.version { color: var(--muted); font-size: 11px; text-align: center; padding-top: 2px; }
+.version { color: var(--muted); font-size: 11.5px; text-align: center; padding-top: 2px; }
 
 /* Modal dialog (replaces prompt() for secrets and destructive actions). */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; z-index: 50; padding: 16px; }
@@ -111,7 +116,7 @@ button { font-family: inherit; cursor: pointer; }
 .modal .modal-sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
 .modal .form { max-width: none; }
 .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
-.modal .field-help { color: var(--muted); font-size: 11.5px; margin-top: -6px; }
+.modal .field-help { color: var(--muted); font-size: 12px; margin-top: -6px; }
 
 /* Tables: horizontal scroll wrapper so wide tables do not overflow phones. */
 .table-scroll { overflow-x: auto; max-width: 100%; }
@@ -135,8 +140,26 @@ button { font-family: inherit; cursor: pointer; }
 }
 .login-error, .form-error { color: var(--red); font-size: 12.5px; min-height: 16px; margin: 0; }
 
+/* Every form control follows the theme (filters, pickers, inline selects),
+   not only those inside .form and .login. Class rules above still win. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius); padding: 7px 10px; font-size: 13.5px; font-family: inherit;
+  min-height: 36px;
+}
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.85; }
+input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak);
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent-solid); width: 16px; height: 16px; }
+select { cursor: pointer; }
+/* Keyboard focus is always visible. */
+button:focus-visible, a:focus-visible, .results-tab:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
 /* Buttons: flat, no glow */
-.btn-primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); border-radius: var(--radius); padding: 9px 14px; font-weight: 600; font-size: 14px; }
+.btn-primary { background: var(--accent-solid); color: var(--on-accent); border: 1px solid var(--accent-solid); border-radius: var(--radius); padding: 9px 14px; font-weight: 600; font-size: 14px; }
 .btn-primary:hover { filter: brightness(0.94); }
 .btn-ghost { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; font-size: 13px; }
 .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
@@ -161,7 +184,7 @@ button { font-family: inherit; cursor: pointer; }
 .search-meta { display: flex; gap: 18px; color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
 .search-layout { display: grid; grid-template-columns: 210px 1fr; gap: 16px; }
 .fields-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; height: fit-content; max-height: 70vh; overflow: auto; }
-.fields-panel h4 { margin: 0 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.fields-panel h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
 .field-item { display: flex; justify-content: space-between; padding: 5px 7px; border-radius: 5px; font-size: 12.5px; cursor: pointer; }
 .field-item:hover { background: var(--panel-2); }
 .field-item .fname { font-family: var(--mono); color: var(--accent); }
@@ -178,8 +201,10 @@ button { font-family: inherit; cursor: pointer; }
 /* Table: dense */
 table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.grid th, table.grid td { text-align: left; padding: 6px 11px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
-table.grid th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; z-index: 1; }
-table.grid td { font-family: var(--mono); font-size: 12.5px; }
+table.grid th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; z-index: 1; white-space: nowrap; }
+table.grid td { font-family: var(--mono); font-size: 13px; }
+/* Short identifiers (tool names, sources, times) never break at a hyphen. */
+.nowrap, td.nowrap { white-space: nowrap; }
 table.grid tbody tr:hover td { background: var(--panel-2); }
 .num { text-align: right; color: var(--accent); }
 
@@ -188,7 +213,7 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 .event-time { color: var(--info); font-family: var(--mono); font-size: 12px; }
 .event-raw { font-family: var(--mono); font-size: 12.5px; margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
 .event-fields { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
-.chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 8px; font-size: 11.5px; font-family: var(--mono); color: var(--muted); }
+.chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 8px; font-size: 12px; font-family: var(--mono); color: var(--muted); }
 .chip b { color: var(--accent); font-weight: 500; }
 
 /* Chart */
@@ -205,12 +230,12 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
 .stat .n { font-size: 24px; font-weight: 700; color: var(--text-strong); }
-.stat .l { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+.stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
 
 /* Forms / admin */
 .form { display: flex; flex-direction: column; gap: 11px; max-width: 420px; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
-.badge { padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge { padding: 1px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 /* Fallback background first for browsers without color-mix support; the
    color-mix line below wins where it is supported. */
 .badge-ok, .status-completed { background: var(--panel-2); background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
@@ -249,3 +274,28 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
   .card, .stat, .results { border: 1px solid #ccc; break-inside: avoid; }
   .modal-overlay { display: none !important; }
 }
+
+/* Chart axes and gridlines */
+.viz { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.viz-y { display: flex; flex-direction: column; justify-content: space-between; height: 220px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; }
+.viz-plot { position: relative; height: 220px; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
+.viz-grid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border-soft); pointer-events: none; }
+.viz-bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 4px; padding: 0 2px; }
+.viz-x { grid-column: 2; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 6px; gap: 8px; }
+.viz-x span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viz-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
+.viz-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* Times: relative with the exact local time on hover. */
+.time-rel { white-space: nowrap; }
+.time-rel small { color: var(--muted); margin-left: 6px; font-size: 11.5px; }
+
+/* Search results take the full width when there are no fields to list. */
+.search-layout.no-fields { grid-template-columns: 1fr; }
+.search-layout.no-fields .fields-panel { display: none; }
+
+/* Account page */
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13.5px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); color: var(--text-strong); }
