@@ -31,3 +31,6 @@ GRANT CREATE TABLE, ALTER, SELECT, INSERT ON daru.* TO daru_admin;
 
 CREATE USER IF NOT EXISTS daru_app IDENTIFIED WITH sha256_password BY 'REPLACE-WITH-APP-PASSWORD';
 GRANT SELECT, INSERT, ALTER DELETE, ALTER UPDATE ON daru.* TO daru_app;
+-- The audit trail is append-only for the app: it can add records but not
+-- change or delete them. Run this line on existing installs too.
+REVOKE ALTER DELETE, ALTER UPDATE ON daru.audit_log FROM daru_app;

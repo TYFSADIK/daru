@@ -29,6 +29,7 @@ type metrics struct {
 	searchErrors   atomic.Uint64
 	scansStarted   atomic.Uint64
 	quotaRejected  atomic.Uint64
+	auditDropped   atomic.Uint64
 	loginFailures  atomic.Uint64
 }
 
@@ -102,6 +103,7 @@ func (m *metrics) write(w http.ResponseWriter, scansRunning, scanSlots int, read
 	counter("daru_search_errors_total", "Searches that failed.", m.searchErrors.Load())
 	counter("daru_scans_started_total", "Recon scans started, manual and scheduled.", m.scansStarted.Load())
 	counter("daru_quota_rejections_total", "Requests refused by a per user scan or schedule quota.", m.quotaRejected.Load())
+	counter("daru_audit_dropped_total", "Audit events that could not be stored (they remain in the server log).", m.auditDropped.Load())
 	counter("daru_login_failures_total", "Failed login attempts.", m.loginFailures.Load())
 	gauge("daru_scans_running", "Recon scans currently holding a slot.", float64(scansRunning))
 	gauge("daru_scan_slots", "Maximum concurrent recon scans.", float64(scanSlots))

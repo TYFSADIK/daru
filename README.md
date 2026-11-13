@@ -212,6 +212,12 @@ your `PATH`, and run `daru serve`.
   method, and an external identity can only sign in to an account of its
   own method, so a directory or IdP user can never take over a local
   account with the same name.
+- **Audit trail**: every sign in (and failed attempt), user, role, token,
+  and index change, scan, schedule, saved search, dashboard, and incident
+  status change is stored with the user, IP, and outcome. Admins filter and
+  export it under **Admin > Audit log**. The trail is append-only: Daru's
+  ClickHouse user can add records but not change or delete them, and they
+  are kept for two years. Every event also goes to the server log.
 - **Per-index access control**: each user can be limited to a set of indexes
   (**Admin > Users > Indexes**, or `POST /api/admin/users/{name}/indexes`).
   Searches, the index list, and that user's scheduled alerts only read the
@@ -362,6 +368,14 @@ docker compose up -d
 
 Open http://localhost:8088 and sign in with the admin account you set in
 `DARU_ADMIN_USER` and `DARU_ADMIN_PASSWORD`.
+
+ClickHouse privileges are split, and the audit trail is append-only.
+Upgrading an existing install? Run this once as a ClickHouse admin so Daru
+cannot delete audit records:
+
+```sql
+REVOKE ALTER DELETE, ALTER UPDATE ON daru.audit_log FROM daru_app;
+```
 
 ClickHouse privileges are split. Daru runs as `daru_app`, which has only
 `SELECT`, `INSERT`, and row level `ALTER DELETE`/`ALTER UPDATE`, and uses the

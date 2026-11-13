@@ -2210,17 +2210,82 @@ async function renderAccount(view) {
 }
 
 // ===================== ADMIN =====================
+// adminAudit shows the stored audit trail with filters and CSV export.
+const AUDIT_EVENT_GROUPS = [["", "All events"], ["login.", "Sign in"], ["logout", "Sign out"], ["user.", "Users"],
+  ["token.", "Ingest tokens"], ["index.", "Indexes"], ["totp.", "Two-factor"], ["scan.", "Scans"],
+  ["live.", "Live capture"], ["tools.", "Tool updates"], ["session.", "Sessions"], ["notable.", "Incidents"]];
+const AUDIT_RANGES = [["24h", "Last 24 hours", 1], ["7d", "Last 7 days", 7], ["30d", "Last 30 days", 30], ["90d", "Last 90 days", 90], ["all", "All time", 0]];
+function adminAudit(body) {
+  const actor = el("input", { placeholder: "User", "aria-label": "Filter by user", style: "width:150px" });
+  const text = el("input", { placeholder: "IP or detail text", "aria-label": "Filter by IP or detail", style: "width:200px" });
+  const group = el("select", { "aria-label": "Event type" }, ...AUDIT_EVENT_GROUPS.map(([v, l]) => el("option", { value: v }, l)));
+  const outcome = el("select", { "aria-label": "Outcome" }, el("option", { value: "" }, "Any outcome"), el("option", { value: "ok" }, "Succeeded"), el("option", { value: "failure" }, "Failed"));
+  const range = el("select", { "aria-label": "Time range" }, ...AUDIT_RANGES.map(([v, l]) => el("option", { value: v }, l)));
+  range.value = "7d";
+  const out = el("div", {}, el("div", { class: "spinner" }, "Loading audit log..."));
+  let last = [];
+  async function load() {
+    const q = new URLSearchParams({ limit: "1000" });
+    if (actor.value.trim()) q.set("actor", actor.value.trim());
+    if (text.value.trim()) q.set("q", text.value.trim());
+    if (group.value) q.set("event", group.value);
+    if (outcome.value) q.set("outcome", outcome.value);
+    const days = (AUDIT_RANGES.find(([v]) => v === range.value) || [])[2];
+    if (days) q.set("since", new Date(Date.now() - days * 86400000).toISOString().replace(/\.\d{3}Z$/, "Z"));
+    out.innerHTML = "";
+    out.appendChild(el("div", { class: "spinner" }, "Loading audit log..."));
+    try {
+      const r = await API.get("/api/admin/audit?" + q.toString());
+      last = r.events || [];
+      out.innerHTML = "";
+      const fails = last.filter((e) => e.outcome === "failure").length;
+      out.appendChild(el("div", { class: "meta", style: "margin-bottom:10px" },
+        `${fmtNum(last.length)} events${last.length >= 1000 ? " (newest 1,000 shown; narrow the filters to see more)" : ""} · ${fmtNum(fails)} failed`));
+      if (!last.length) { out.appendChild(el("div", { class: "empty" }, "No audit events match these filters.")); return; }
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["Time", "Event", "User", "IP", "Outcome", "Details"].map((h) => el("th", {}, h))));
+      for (const e of last) {
+        const details = el("td", { style: "white-space:normal" });
+        for (const [k, v] of Object.entries(e.details || {})) details.appendChild(el("span", { class: "chip", style: "margin:0 4px 4px 0;display:inline-block" }, el("b", {}, k), "=" + v));
+        if (!details.childNodes.length) details.appendChild(document.createTextNode("-"));
+        t.appendChild(el("tr", {},
+          timeTd(e.time), el("td", { class: "nowrap" }, e.event), el("td", { class: "nowrap" }, e.actor || "-"),
+          el("td", { class: "nowrap" }, e.ip || "-"),
+          el("td", {}, el("span", { class: "badge " + (e.outcome === "failure" ? "badge-fail" : "badge-ok") }, e.outcome === "failure" ? "failed" : "ok")),
+          details));
+      }
+      out.appendChild(el("div", { class: "table-scroll" }, t));
+    } catch (ex) { out.innerHTML = ""; out.appendChild(el("div", { class: "empty" }, ex.message)); }
+  }
+  function exportCsv() {
+    const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+    const rows = [["time_utc", "event", "user", "ip", "outcome", "details"]];
+    for (const e of last) rows.push([e.time, e.event, e.actor, e.ip, e.outcome, Object.entries(e.details || {}).map(([k, v]) => k + "=" + v).join("; ")]);
+    downloadFile("daru-audit-" + new Date().toISOString().slice(0, 10) + ".csv", rows.map((r) => r.map(esc).join(",")).join("\n"), "text/csv");
+  }
+  for (const c of [group, outcome, range]) c.addEventListener("change", load);
+  for (const c of [actor, text]) c.addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+  body.appendChild(el("div", { class: "notice" }, "Every sign in, permission change, token, scan, and admin action is recorded here. The trail is append-only: Daru can add records but cannot change or delete them, and they are kept for two years."));
+  body.appendChild(el("div", { class: "toolbar" }, actor, text, group, outcome, range,
+    el("button", { class: "btn-primary", onclick: load }, "Apply"),
+    el("button", { class: "btn-ghost", onclick: exportCsv }, "Export CSV")));
+  body.appendChild(out);
+  load();
+}
+
 async function renderAdmin(view) {
-  view.appendChild(pageHead("Administration", "Users, indexes, and ingest tokens"));
+  view.appendChild(pageHead("Administration", "Users, indexes, ingest tokens, and the audit trail"));
   const tabs = el("div", { class: "results-tabs", style: "margin-bottom:16px" });
   const body = el("div", {});
-  const defs = [["users", "Users"], ["indexes", "Indexes"], ["tokens", "Ingest tokens"], ["system", "System"]];
-  let active = "users";
+  const defs = [["users", "Users"], ["indexes", "Indexes"], ["tokens", "Ingest tokens"], ["audit", "Audit log"], ["system", "System"]];
+  // A tab can be linked directly: #/admin/audit.
+  const wanted = (location.hash.split("/")[2] || "").toLowerCase();
+  let active = defs.some(([t]) => t === wanted) ? wanted : "users";
   function draw() {
     body.innerHTML = "";
     if (active === "users") adminUsers(body);
     else if (active === "indexes") adminIndexes(body);
     else if (active === "tokens") adminTokens(body);
+    else if (active === "audit") adminAudit(body);
     else adminSystem(body);
     [...tabs.children].forEach((c) => c.classList.toggle("active", c.dataset.t === active));
   }

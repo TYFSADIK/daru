@@ -72,6 +72,7 @@ func (s *Server) handleCreateSaved(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "search.save", sess.Username, "id", id, "name", ss.Name, "alert", ss.IsAlert)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved", "id": id})
 }
 
@@ -87,6 +88,7 @@ func (s *Server) handleDeleteSaved(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "search.delete", sess.Username, "id", r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -139,6 +141,7 @@ func (s *Server) handleSaveDashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "dashboard.save", sess.Username, "id", id, "name", d.Name)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved", "id": id})
 }
 
@@ -154,6 +157,7 @@ func (s *Server) handleDeleteDashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "dashboard.delete", sess.Username, "id", r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -189,5 +193,6 @@ func (s *Server) handleNotableStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "notable.status_change", owner, "id", r.PathValue("id"), "status", req.Status)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }

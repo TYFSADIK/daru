@@ -266,6 +266,22 @@ var schemaStatements = []string{
 		fields      Map(String, String)
 	) ENGINE = MergeTree ORDER BY (scan_id, severity)`,
 
+	// audit_log is the append-only security audit trail: sign ins, user,
+	// role, token, and index changes, scans, and other privileged actions.
+	// The app user cannot delete or update it (see clickhouse-users.sql);
+	// rows expire after two years.
+	`CREATE TABLE IF NOT EXISTS audit_log (
+		time     DateTime64(3, 'UTC') DEFAULT now64(3),
+		event    LowCardinality(String),
+		actor    String,
+		ip       String,
+		outcome  LowCardinality(String) DEFAULT 'ok',
+		details  Map(String, String)
+	) ENGINE = MergeTree
+	PARTITION BY toYYYYMM(time)
+	ORDER BY (time, event)
+	TTL toDateTime(time) + INTERVAL 730 DAY`,
+
 	// notable_events is the security incident queue (ES equivalent).
 	`CREATE TABLE IF NOT EXISTS notable_events (
 		id          UUID DEFAULT generateUUIDv4(),

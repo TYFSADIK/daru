@@ -57,8 +57,13 @@ type Server struct {
 	MetricsToken string
 
 	initOnce sync.Once
-	reconSem chan struct{} // bounds concurrent scans
-	capSem   chan struct{} // bounds concurrent live packet captures
+
+	// Stored audit trail: events queue here for a batching writer.
+	auditOnce sync.Once
+	auditCh   chan store.AuditEvent
+	auditDone chan struct{}
+	reconSem  chan struct{} // bounds concurrent scans
+	capSem    chan struct{} // bounds concurrent live packet captures
 
 	loginLimiter  *loginLimiter
 	captureTokens map[string]captureToken
@@ -202,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/users/{username}/disabled", s.authed(auth.RoleAdmin, s.handleSetDisabled))
 	mux.HandleFunc("POST /api/admin/users/{username}/indexes", s.authed(auth.RoleAdmin, s.handleSetIndexAccess))
 	mux.HandleFunc("POST /api/admin/indexes", s.authed(auth.RoleAdmin, s.handleCreateIndex))
+	mux.HandleFunc("GET /api/admin/audit", s.authed(auth.RoleAdmin, s.handleListAudit))
 	mux.HandleFunc("GET /api/admin/tokens", s.authed(auth.RoleAdmin, s.handleListTokens))
 	mux.HandleFunc("POST /api/admin/tokens", s.authed(auth.RoleAdmin, s.handleCreateToken))
 	mux.HandleFunc("POST /api/admin/tokens/{name}/disable", s.authed(auth.RoleAdmin, s.handleDisableToken))

@@ -68,6 +68,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "scan.schedule_create", sc.CreatedBy, "id", id, "tool", sc.Connector, "target", sc.Target, "cron", sc.Cron)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
@@ -85,6 +86,7 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "scan.schedule_delete", sess.Username, "id", r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

@@ -463,6 +463,7 @@ func serve(log *slog.Logger) {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Warn("shutdown did not finish cleanly", "err", err)
 	}
+	srv.FlushAudit(shutdownCtx)
 }
 
 // externalPolicy reads PREFIX_AUTO_CREATE, PREFIX_DEFAULT_ROLE and

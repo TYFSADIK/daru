@@ -24,12 +24,19 @@ trap cleanup EXIT
 as_admin "CREATE DATABASE IF NOT EXISTS $db" >/dev/null
 as_admin "CREATE USER IF NOT EXISTS $user IDENTIFIED WITH sha256_password BY '$pw'" >/dev/null
 as_admin "GRANT SELECT, INSERT, ALTER DELETE, ALTER UPDATE ON $db.* TO $user" >/dev/null
+as_admin "REVOKE ALTER DELETE, ALTER UPDATE ON $db.audit_log FROM $user" >/dev/null
+as_admin "CREATE TABLE $db.audit_log (x UInt8) ENGINE = MergeTree ORDER BY x" >/dev/null
 as_admin "CREATE TABLE $db.t (x UInt8) ENGINE = MergeTree ORDER BY x" >/dev/null
 
 expect_ok  "INSERT INTO t VALUES (1), (2)"
 expect_ok  "SELECT count() FROM t"
 expect_ok  "DELETE FROM t WHERE x = 1"
 expect_ok  "SELECT count() FROM t" "&readonly=2&max_execution_time=30"
+# The audit trail is append-only: insert works, delete, update and truncate do not.
+expect_ok  "INSERT INTO audit_log VALUES (1)"
+expect_err "DELETE FROM audit_log WHERE x = 1" ACCESS_DENIED
+expect_err "ALTER TABLE audit_log UPDATE x = 2 WHERE 1" ACCESS_DENIED
+expect_err "TRUNCATE TABLE audit_log" ACCESS_DENIED
 expect_err "CREATE TABLE u (x UInt8) ENGINE = Memory" ACCESS_DENIED
 expect_err "ALTER TABLE t ADD COLUMN y UInt8" ACCESS_DENIED
 expect_err "DROP TABLE t" ACCESS_DENIED

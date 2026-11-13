@@ -42,6 +42,7 @@ func (s *Server) handleReconScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, "scan.start", user, "scan", scanID, "tool", req.Connector, "target", req.Target, "authorization", req.AuthorizationRef)
 	writeJSON(w, http.StatusOK, map[string]any{"scan_id": scanID, "status": "running"})
 }
 
@@ -288,6 +289,7 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Log.Info("pcap analyzed", "file", label, "packets", len(findings))
 	}()
+	s.audit(r, "scan.pcap_upload", user, "scan", scanID, "file", label, "bytes", n)
 	writeJSON(w, http.StatusOK, map[string]any{"scan_id": scanID, "status": "running", "file": label})
 }
 
