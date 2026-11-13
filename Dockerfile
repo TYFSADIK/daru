@@ -1,7 +1,7 @@
 # Build the single Daru binary. The web UI is embedded, so the final image
 # is just the binary on a minimal base. Daru itself is one binary, but it
 # needs ClickHouse as a second service; see deploy/docker-compose.yml.
-FROM golang:1.27.3-alpine AS build
+FROM golang:1.27.4-alpine AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./

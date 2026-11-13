@@ -11,13 +11,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: Version drift check
         run: |
-          grep -q 'go 1.27.3' go.mod
-          grep -q 'golang:1.27.3' Dockerfile
-          grep -q 'GOVER=1.27.3' install.sh
-          grep -q '1.27.3' install.ps1
+          grep -q 'go 1.27.4' go.mod
+          grep -q 'golang:1.27.4' Dockerfile
+          grep -q 'GOVER=1.27.4' install.sh
+          grep -q '1.27.4' install.ps1
           grep -q 'Go-1.27' README.md
       - name: Format check
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: Build ${{ matrix.target.goos }}/${{ matrix.target.goarch }}
         env:
           CGO_ENABLED: 0
@@ -113,6 +113,23 @@ jobs:
         run: go test -count=1 -run 'TestRoundTrip|TestPortDiff|TestSharedStateLive' ./internal/store/
       - name: Least privilege app user
         run: ./scripts/check-clickhouse-privileges.sh http://127.0.0.1:8123 daru ci-admin-password
+      - name: Backup and restore round trip
+        env:
+          DARU_CLICKHOUSE_URL: http://127.0.0.1:8123
+          DARU_CLICKHOUSE_USER: daru
+          DARU_CLICKHOUSE_PASSWORD: ci-admin-password
+          DARU_RESTORE_YES: "1"
+        run: |
+          set -eu
+          go run ./cmd/daru migrate
+          q() { curl -sf "http://127.0.0.1:8123/?database=daru&user=daru&password=ci-admin-password" --data-binary "$1"; }
+          q "INSERT INTO events (_time, index, host, source, sourcetype, _raw) VALUES (now64(3), 'main', 'ci', 's', 't', 'ci-backup-marker')"
+          ./scripts/backup.sh /tmp/ci-backup.tar.gz
+          ./scripts/restore.sh --dry-run /tmp/ci-backup.tar.gz
+          q "DROP TABLE events SYNC"
+          ./scripts/restore.sh /tmp/ci-backup.tar.gz
+          test "$(q "SELECT count() FROM events WHERE _raw = 'ci-backup-marker'")" = "1"
+          echo "backup and restore verified"
 
   docker:
     runs-on: ubuntu-latest

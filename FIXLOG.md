@@ -246,11 +246,32 @@ v3.4.15 and `github.com/crewjam/saml` v0.6.3.
   index ACL cache stays per server with a 30 second lifetime, so an ACL
   change made on one server reaches the others within 30 seconds.
 
+## Follow up, 2026-11-13 (4): Go 1.27.4, backup and restore rebuilt
+
+- Go pinned to 1.27.4 everywhere (go.mod, Dockerfile, CI, release,
+  install.sh, install.ps1), all nine install checksums from go.dev/dl. The
+  install.sh linux-amd64 pin was checked against the downloaded archive.
+  Tests, race tests, and `docker build` (golang:1.27.4-alpine) pass.
+- Backup was broken, and had been since M10: ClickHouse refuses
+  `BACKUP ... TO File('/tmp/...')` unless `backups.allowed_path` is
+  configured, which neither compose nor install.sh does, so `backup.sh`
+  never produced a file. After the user split it would also have failed
+  for lack of the BACKUP grant. The local branch also passed the HTTP port
+  (8123) to clickhouse-client, which speaks the native protocol.
+  Both scripts were rewritten to use the HTTP interface: per table
+  `SHOW CREATE TABLE` plus `SELECT * FORMAT Native`, packed into a tar.gz
+  (mode 600, it holds credential hashes), and restored with DROP, CREATE,
+  and `INSERT FORMAT Native`. Backup works with the app user; restore needs
+  the admin user and says so when it is missing. Verified live on
+  ClickHouse 25.8: backup as `daru_app`, drop the events table, restore as
+  admin, the marker row and the 3650 day TTL come back; a junk archive and
+  a wrong password are refused with a clear message.
+
 ## Remaining honest limits
 
 - govulncheck over the new modules has not been run in this session (the
   session's permissions blocked downloading it). CI runs it on every push;
   locally: `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`.
-- install.sh Go SHA-256 pins are for Go 1.27.3 (re-verified against the
-  go.dev download in this pass). If Go releases a patch, update the pins in
-  install.sh and install.ps1 together.
+- Go is pinned to 1.27.4 (go.mod, Dockerfile, CI, install.sh, install.ps1),
+  with every SHA-256 checksum taken from go.dev/dl on 2026-11-13. When Go
+  releases the next patch, update all of them together; CI checks they agree.

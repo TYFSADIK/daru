@@ -5,7 +5,7 @@ and submitting changes.
 
 ## Getting set up
 
-You need Go 1.27.3+ and a reachable ClickHouse (Docker is the easy path).
+You need Go 1.27.4+ and a reachable ClickHouse (Docker is the easy path).
 
 ```bash
 git clone https://github.com/TYFSADIK/daru

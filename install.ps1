@@ -5,7 +5,7 @@
 # are not installed here.
 #
 # Go downloads are verified against the official SHA-256 checksums published
-# at https://go.dev/dl/ for Go 1.27.3 before anything is extracted. A
+# at https://go.dev/dl/ for Go 1.27.4 before anything is extracted. A
 # checksum mismatch fails the install.
 #
 #   powershell -ExecutionPolicy Bypass -File install.ps1
@@ -19,11 +19,11 @@ function Say($m)  { Write-Host "==> $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "[!] $m" -ForegroundColor Yellow }
 function Die($m)  { Write-Host "[x] $m" -ForegroundColor Red; exit 1 }
 
-# Official SHA-256 checksums for Go 1.27.3, from https://go.dev/dl/.
+# Official SHA-256 checksums for Go 1.27.4, from https://go.dev/dl/.
 $GoHashes = @{
-    "windows-amd64" = "f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff"
-    "windows-386"   = "fa6fa87202fdd0421bf1f0daab5192d244840f0728398ee35a56f231d54363be"
-    "windows-arm64" = "c507872ff21f8a7cd3c1c217b059c6f7271a4a9d8e692810ef9dd3e1f601197c"
+    "windows-amd64" = "178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e"
+    "windows-386"   = "ef86c83de402573f0dea26727032e239906ca1ba4f42130ce21c02e789a687f8"
+    "windows-arm64" = "9e7a72565792b8ab370b37ac9ac109799237abacb39ff2f541c438b963c0cc64"
 }
 
 function Have-Go {
@@ -40,7 +40,7 @@ function Install-Go {
         if (-not (Have-Go)) { Die "winget reported success but 'go version' still fails. Check the winget output above." }
         return
     }
-    $ver = "1.27.3"
+    $ver = "1.27.4"
     $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
     if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
     $key = "windows-$arch"

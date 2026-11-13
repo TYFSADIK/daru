@@ -379,27 +379,36 @@ All Daru state lives in ClickHouse, so back it up with:
 
 ```bash
 ./scripts/backup.sh
-# writes ~/.daru/backups/daru-YYYY-MM-DD-HHMMSS.zip
+# writes ~/.daru/backups/daru-YYYY-MM-DD-HHMMSS.tar.gz (readable by you only)
 ```
 
-Restore it with:
+Check a backup and restore it with:
 
 ```bash
-./scripts/restore.sh ~/.daru/backups/daru-2026-11-08.zip
+./scripts/restore.sh --dry-run ~/.daru/backups/daru-2026-11-08-030000.tar.gz
+./scripts/restore.sh ~/.daru/backups/daru-2026-11-08-030000.tar.gz
 ```
 
-Restore replaces the current database, so stop Daru first and back up the
-current data if it matters. Test a restore on a scratch ClickHouse before
-relying on it. Daily cron example:
+The scripts use ClickHouse's HTTP interface (only `curl` 7.87+ and `tar`
+are needed), so they work with ClickHouse in Docker or on another host and
+need no server side backup configuration. The file holds each table's
+schema and rows. It includes password, session, and token hashes, so keep
+it private.
+
+Restore replaces every table in the backup, so stop Daru first and back up
+the current data if it matters. It needs schema rights: set
+`DARU_CLICKHOUSE_ADMIN_USER` and `DARU_CLICKHOUSE_ADMIN_PASSWORD` (backup
+works with the least privilege app user too). Test a restore on a scratch
+ClickHouse before relying on it. Daily cron example:
 
 ```cron
 0 3 * * * /path/to/daru/scripts/backup.sh >> /var/log/daru-backup.log 2>&1
-0 4 * * * find "$HOME/.daru/backups" -name 'daru-*.zip' -mtime +7 -delete
+0 4 * * * find "$HOME/.daru/backups" -name 'daru-*.tar.gz' -mtime +7 -delete
 ```
 
-The backup and restore scripts accept `DARU_CLICKHOUSE_URL`,
-`DARU_CLICKHOUSE_DB`, `DARU_CLICKHOUSE_USER`, `DARU_CLICKHOUSE_PASSWORD`,
-and `DARU_CLICKHOUSE_CONTAINER`, and load `~/.daru/daru.env` when present.
+The scripts read `DARU_CLICKHOUSE_URL`, `DARU_CLICKHOUSE_DB`, the app and
+admin ClickHouse users and passwords, and `DARU_BACKUP_DIR`, and load
+`~/.daru/daru.env` when present.
 
 ## TLS
 
@@ -412,7 +421,7 @@ time; the binary version comes from `git describe --tags` via the Makefile.
 
 ## Running without Docker
 
-You need Go 1.27.3+ and a reachable ClickHouse.
+You need Go 1.27.4+ and a reachable ClickHouse.
 
 ```bash
 go build -o daru ./cmd/daru

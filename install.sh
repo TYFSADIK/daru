@@ -6,7 +6,7 @@
 # scanners are NOT installed here; run scripts/install-recon-tools.sh for those.
 #
 # Go downloads are verified against the official SHA-256 checksums published
-# at https://go.dev/dl/ for Go 1.27.3 before anything is extracted. A
+# at https://go.dev/dl/ for Go 1.27.4 before anything is extracted. A
 # checksum mismatch fails the install.
 #
 # Usage:
@@ -95,17 +95,17 @@ have_recent_go() {
   return 1
 }
 
-# Official SHA-256 checksums for Go 1.27.3, from https://go.dev/dl/.
+# Official SHA-256 checksums for Go 1.27.4, from https://go.dev/dl/.
 # If Go is bumped, update GOVER and every checksum here, plus go.mod,
 # Dockerfile, CI, install.ps1, and the README badge.
 go_sha256() {
   case "$1" in
-    linux-amd64) echo 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 ;;
-    linux-arm64) echo a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 ;;
-    linux-armv6l) echo d6f4e11dd7157030d7ac11c51c8f73201a2db932d593c3106b1da11cc32bfdf8 ;;
-    linux-386) echo cfc243057c03dd131413b91269d16b5061f87f312059c1ed78681cbb95d6afbf ;;
-    darwin-amd64) echo b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750 ;;
-    darwin-arm64) echo dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2 ;;
+    linux-amd64) echo 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840 ;;
+    linux-arm64) echo 3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92 ;;
+    linux-armv6l) echo e50964c41c6e187375387939e2f380de7250eba44e2259dfeb75c540d9d585c3 ;;
+    linux-386) echo 6ecb45737d2315acb0dbbc97ea8e13e7c19d4c796abe8d68907c40bce6f50bf7 ;;
+    darwin-amd64) echo 2b799377704ef12db39bd254995d5c348c9cc8d86562ca817724390e56c38f43 ;;
+    darwin-arm64) echo 91a44a2b8a716600ad94a4f143e156116620db8828086a6e3602291be9bd0bb4 ;;
     *) return 1 ;;
   esac
 }
@@ -132,7 +132,7 @@ install_go() {
   if command -v apt-get >/dev/null 2>&1; then
     warn "Distro Go may be old; downloading the official toolchain instead"
   fi
-  GOVER=1.27.3
+  GOVER=1.27.4
   url="https://go.dev/dl/go${GOVER}.${GOOS}-${GOARCH_DL}.tar.gz"
   want=$(go_sha256 "${GOOS}-${GOARCH_DL}") || die "no pinned SHA-256 for Go on ${GOOS}-${GOARCH_DL}"
   dest="$HOME/.daru/go"
