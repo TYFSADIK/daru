@@ -62,6 +62,11 @@ type samlRig struct {
 // SAML state cookie is Secure) wired to each other.
 func newSAMLRig(t *testing.T, autoCreate bool) *samlRig {
 	t.Helper()
+	return newSAMLRigSigned(t, autoCreate, false)
+}
+
+func newSAMLRigSigned(t *testing.T, autoCreate, signed bool) *samlRig {
+	t.Helper()
 	rig := &samlRig{f: newFakeCH()}
 	// IdP.
 	idpKey, idpCert, _, _ := selfSigned(t, "test-idp")
@@ -101,7 +106,7 @@ func newSAMLRig(t *testing.T, autoCreate bool) *samlRig {
 		// samlidp's login form re-posts the AuthnRequest without the
 		// redirect signature and then refuses its own repost, so this test
 		// IdP needs unsigned requests. Responses are verified either way.
-		UnsignedRequests: true,
+		UnsignedRequests: !signed,
 		Policy:           ExternalAccountPolicy{AutoCreate: autoCreate},
 	})
 	if err != nil {
@@ -293,3 +298,47 @@ func TestSAMLMetadataAndConfig(t *testing.T) {
 
 func decodeB64(s string) ([]byte, error) { return base64.StdEncoding.DecodeString(s) }
 func encodeB64(b []byte) string          { return base64.StdEncoding.EncodeToString(b) }
+
+// With request signing on (the default), the IdP must verify Daru's
+// signed HTTP-Redirect AuthnRequest against the certificate in Daru's SP
+// metadata, and refuse it once the signature is corrupted.
+func TestSAMLSignedAuthnRequestVerifiedByIdP(t *testing.T) {
+	rig := newSAMLRigSigned(t, false, true)
+	noFollow := *rig.client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := noFollow.Get(rig.daru.URL + "/api/saml/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil || loc.Query().Get("Signature") == "" || !strings.Contains(loc.Query().Get("SigAlg"), "rsa-sha256") {
+		t.Fatalf("redirect is not a signed RSA-SHA256 request: %s", resp.Header.Get("Location"))
+	}
+	// Correct signature: the IdP accepts the request and shows its login form.
+	ok, err := http.Get(loc.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(ok.Body)
+	if ok.StatusCode != http.StatusOK || !strings.Contains(string(body), `name="password"`) {
+		t.Fatalf("IdP refused a correctly signed request: %d %.200s", ok.StatusCode, body)
+	}
+	// Corrupted signature: the IdP refuses it.
+	q := loc.Query()
+	sig, _ := base64.StdEncoding.DecodeString(q.Get("Signature"))
+	sig[len(sig)/2] ^= 0xff
+	raw := strings.Replace(loc.RawQuery, "Signature="+url.QueryEscape(q.Get("Signature")),
+		"Signature="+url.QueryEscape(base64.StdEncoding.EncodeToString(sig)), 1)
+	if raw == loc.RawQuery {
+		t.Fatal("could not corrupt the signature parameter")
+	}
+	bad := *loc
+	bad.RawQuery = raw
+	resp2, err := http.Get(bad.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp2.StatusCode == http.StatusOK {
+		t.Error("IdP accepted a request with a corrupted signature")
+	}
+}

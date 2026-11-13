@@ -212,13 +212,17 @@ v3.4.15 and `github.com/crewjam/saml` v0.6.3.
   against crewjam's samlidp IdP with real keys: sign in and role sync work;
   a replayed response, an altered response, an ACS post without the state
   cookie, and a SAML identity matching a local account are all refused.
+  Signed requests: the samlidp IdP verifies Daru's RSA-SHA256 signed
+  HTTP-Redirect AuthnRequest against Daru's SP metadata and refuses it once
+  the signature is corrupted. (samlidp's own login form then re-posts the
+  request unsigned, so the full browser login test runs with signing off.)
 - Admin UI: Users shows the sign in method; Add user picks it (password only
   for local accounts). Login page shows Sign in with SAML when configured.
 - Gates: `gofmt -l .` empty, `go vet ./...` exit 0, `go test -race ./...`
   all pass (194 top level tests), `docker build` succeeds with the new
   modules.
 - Not done here: govulncheck over the new modules. Running it was blocked
-  by this session's permission settings; run
+  twice by this session's permission settings (it downloads the tool); run
   `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (CI already does).
 
 ## Remaining honest limits
