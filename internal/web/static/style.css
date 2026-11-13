@@ -217,7 +217,7 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 .chip b { color: var(--accent); font-weight: 500; }
 
 /* Chart */
-.chart { padding: 16px; }
+.chart { padding: 16px; min-width: 0; }
 .hist { display: flex; align-items: flex-end; gap: 2px; height: 90px; padding: 10px 14px 0; border-bottom: 1px solid var(--border-soft); }
 .hist .bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; opacity: 0.9; }
 .hist .bar:hover { opacity: 1; }
@@ -276,9 +276,9 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 }
 
 /* Chart axes and gridlines */
-.viz { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.viz { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 8px; min-width: 0; }
 .viz-y { display: flex; flex-direction: column; justify-content: space-between; height: 220px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; }
-.viz-plot { position: relative; height: 220px; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
+.viz-plot { position: relative; height: 220px; min-width: 0; overflow: hidden; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
 .viz-grid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border-soft); pointer-events: none; }
 .viz-bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 4px; padding: 0 2px; }
 .viz-x { grid-column: 2; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 6px; gap: 8px; }

@@ -588,13 +588,18 @@ function renderTable(r) {
   return el("div", { class: "table-scroll" }, table);
 }
 
-// niceMax rounds a chart maximum up to 1, 2, or 5 times a power of ten, so
-// the axis reads 0 / 250 / 500 / 750 / 1,000 rather than odd values.
+// niceMax picks the chart top as four equal steps of 1, 2, 2.5, or 5 times
+// a power of ten, so the axis reads 0 / 10 / 20 / 30 / 40 or
+// 0 / 2,500 / 5,000 ... and never shows fractions for whole counts.
 function niceMax(v) {
-  if (!(v > 0)) return 1;
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
-  for (const m of [1, 2, 2.5, 5, 10]) if (v <= m * p) return m * p;
-  return 10 * p;
+  if (!(v > 0)) return 4;
+  const want = Number.isInteger(v) ? Math.max(1, v / 4) : v / 4; // whole counts step by at least 1
+  const p = Math.pow(10, Math.floor(Math.log10(want)));
+  for (const m of [1, 2, 2.5, 5, 10]) {
+    if (m === 2.5 && p < 10 && Number.isInteger(v)) continue; // 2.5 would make fractional ticks
+    if (m * p >= want) return 4 * m * p;
+  }
+  return 40 * p;
 }
 
 function renderViz(r) {
@@ -640,13 +645,20 @@ function renderViz(r) {
   plot.appendChild(bars);
   viz.appendChild(yAxis);
   viz.appendChild(plot);
-  // Up to five evenly spaced x labels.
+  // Evenly spaced x labels: as many as fit the chart's width (at most 5),
+  // measured once the chart is on screen.
   const xAxis = el("div", { class: "viz-x" });
-  const ticks = Math.min(5, show.length);
-  for (let t = 0; t < ticks; t++) {
-    const idx = ticks === 1 ? 0 : Math.round((t * (show.length - 1)) / (ticks - 1));
-    xAxis.appendChild(el("span", {}, xLabel(show[idx][xKey])));
-  }
+  const drawTicks = () => {
+    xAxis.innerHTML = "";
+    const width = plot.clientWidth || 600;
+    const ticks = Math.max(1, Math.min(5, show.length, Math.floor(width / 120)));
+    for (let t = 0; t < ticks; t++) {
+      const idx = ticks === 1 ? 0 : Math.round((t * (show.length - 1)) / (ticks - 1));
+      xAxis.appendChild(el("span", {}, xLabel(show[idx][xKey])));
+    }
+  };
+  drawTicks();
+  requestAnimationFrame(drawTicks);
   viz.appendChild(xAxis);
   chart.appendChild(viz);
   if (r.rows.length > show.length) chart.appendChild(el("div", { class: "meta", style: "margin-top:8px" }, `Showing the first ${show.length} of ${fmtNum(r.rows.length)} rows.`));
