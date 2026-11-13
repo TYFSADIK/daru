@@ -73,8 +73,10 @@ func (s *Server) resolveExternal(ctx context.Context, r *http.Request, source, u
 }
 
 // startSession issues the session and CSRF cookies after any sign in.
-func (s *Server) startSession(w http.ResponseWriter, u *auth.User) error {
-	token, err := s.Auth.NewSession(context.Background(), u)
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u *auth.User, method string) error {
+	// Detached from the request so a slow client cannot cancel the insert.
+	ctx := auth.WithSessionMeta(context.Background(), auth.SessionMeta{IP: clientIP(r), UserAgent: r.UserAgent(), Method: method})
+	token, err := s.Auth.NewSession(ctx, u)
 	if err != nil {
 		return err
 	}

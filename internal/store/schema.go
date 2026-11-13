@@ -54,6 +54,10 @@ func ident(s string) string {
 }
 
 var schemaAlterations = []string{
+	// Session details for the sessions list: where and how it signed in.
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip String DEFAULT ''`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent String DEFAULT ''`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS method LowCardinality(String) DEFAULT ''`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret String DEFAULT ''`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled UInt8 DEFAULT 0`,
 	// index_access: "*" is every index (the default, so upgrades keep the

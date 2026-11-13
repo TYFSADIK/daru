@@ -281,7 +281,7 @@ func (s *Server) handleSAMLACS(w http.ResponseWriter, r *http.Request) {
 		s.samlFail(w, r, username, reasonOf(err))
 		return
 	}
-	if err := s.startSession(w, u); err != nil {
+	if err := s.startSession(w, r, u, "saml"); err != nil {
 		s.samlFail(w, r, username, "could not create session")
 		return
 	}

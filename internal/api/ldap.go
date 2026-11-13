@@ -34,7 +34,7 @@ func (s *Server) ldapLogin(r *http.Request, username, password, totp string) (*a
 			return nil, "", auth.ErrTOTPInvalid
 		}
 	}
-	token, err := s.Auth.NewSession(r.Context(), u)
+	token, err := s.Auth.NewSession(s.sessionCtx(r, "ldap"), u)
 	if err != nil {
 		return nil, "", err
 	}

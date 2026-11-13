@@ -124,7 +124,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		s.oidcFail(w, r, username, reasonOf(err))
 		return
 	}
-	if err := s.startSession(w, u); err != nil {
+	if err := s.startSession(w, r, u, "oidc"); err != nil {
 		s.oidcFail(w, r, username, "could not create session")
 		return
 	}

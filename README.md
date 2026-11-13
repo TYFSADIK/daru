@@ -213,6 +213,11 @@ your `PATH`, and run `daru serve`.
   method, and an external identity can only sign in to an account of its
   own method, so a directory or IdP user can never take over a local
   account with the same name.
+- **Session management**: everyone sees their active sessions (browser, IP,
+  sign in method, age) under **Account** and can sign out any of them, or
+  every other session at once. Admins can sign a user out on every device
+  (**Admin > Users > Sign out everywhere**), for a lost laptop or a
+  suspected compromise.
 - **Audit trail**: every sign in (and failed attempt), user, role, token,
   and index change, scan, schedule, saved search, dashboard, and incident
   status change is stored with the user, IP, and outcome. Admins filter and

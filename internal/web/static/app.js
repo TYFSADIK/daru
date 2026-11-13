@@ -2169,6 +2169,55 @@ function miniBreakdown(title, counts, total) {
 }
 
 // ===================== ACCOUNT =====================
+// describeUA turns a user agent into "Chrome on macOS" style text.
+function describeUA(ua) {
+  if (!ua) return "Unknown client";
+  const browser = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox"
+    : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : /curl\//i.test(ua) ? "curl"
+    : /python/i.test(ua) ? "Python script" : ua.split(/[ /]/)[0];
+  const os = /Windows/.test(ua) ? "Windows" : /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android"
+    : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? browser + " on " + os : browser;
+}
+
+function sessionsCard() {
+  const card = el("div", { class: "card", style: "margin-top:14px" });
+  const head = el("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px" },
+    el("div", {}, el("h3", { style: "margin:0" }, "Active sessions"),
+      el("div", { class: "meta" }, "Every browser or script signed in as you. Sign out any you do not recognize.")));
+  const othersBtn = el("button", { class: "btn-ghost btn-danger", onclick: async () => {
+    if (!(await confirmDialog("Sign out every other session? This one stays signed in.", "Sign out others"))) return;
+    try { await API.post("/api/me/sessions/revoke-others", {}); toast("Other sessions signed out"); load(); } catch (ex) { toast(ex.message, "error"); }
+  } }, "Sign out all other sessions");
+  head.appendChild(othersBtn);
+  card.appendChild(head);
+  const body = el("div", {}, el("div", { class: "spinner" }, "Loading sessions..."));
+  card.appendChild(body);
+  async function load() {
+    try {
+      const r = await API.get("/api/me/sessions");
+      const list = r.sessions || [];
+      body.innerHTML = "";
+      othersBtn.disabled = list.filter((x) => !x.current).length === 0;
+      if (!list.length) { body.appendChild(el("div", { class: "empty" }, "No active sessions.")); return; }
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["Client", "IP", "Method", "Signed in", "Expires", ""].map((h) => el("th", {}, h))));
+      for (const x of list) {
+        t.appendChild(el("tr", {},
+          el("td", { class: "nowrap", title: x.user_agent || "" }, describeUA(x.user_agent),
+            x.current ? el("span", { class: "badge badge-ok", style: "margin-left:8px" }, "this session") : null),
+          el("td", { class: "nowrap" }, x.ip || "-"), el("td", {}, x.method || "-"),
+          timeTd(x.created_at.replace("Z", "")), el("td", { class: "nowrap", title: fmtTime(x.expires_at) }, fmtTime(x.expires_at).slice(0, 16)),
+          el("td", {}, x.current ? null : el("button", { class: "btn-ghost btn-sm btn-danger", onclick: async () => {
+            try { await API.post("/api/me/sessions/" + encodeURIComponent(x.id) + "/revoke", {}); toast("Session signed out"); load(); } catch (ex) { toast(ex.message, "error"); }
+          } }, "Sign out"))));
+      }
+      body.appendChild(el("div", { class: "table-scroll" }, t));
+    } catch (ex) { body.innerHTML = ""; body.appendChild(el("div", { class: "empty" }, ex.message)); }
+  }
+  load();
+  return card;
+}
+
 async function renderAccount(view) {
   view.appendChild(pageHead("Account", "Your profile and sign-in security"));
   const grid = el("div", { class: "account-grid" });
@@ -2183,6 +2232,7 @@ async function renderAccount(view) {
   }
   profile.appendChild(kv);
   grid.appendChild(profile);
+  view.appendChild(sessionsCard());
 
   const totpCard = el("div", { class: "card", style: "" });
   totpCard.appendChild(el("h3", { style: "margin:0 0 6px" }, "Two-factor authentication (TOTP)"));
@@ -2365,6 +2415,10 @@ async function adminUsers(body) {
           el("button", { class: "btn-ghost btn-sm", onclick: () => changeRole(u) }, "Role"),
           u.role !== "admin" ? el("button", { class: "btn-ghost btn-sm", onclick: () => changeIndexAccess(u, body) }, "Indexes") : null,
           (u.auth_source || "local") === "local" ? el("button", { class: "btn-ghost btn-sm", onclick: () => resetPw(u) }, "Password") : null,
+          u.username !== ME.username ? el("button", { class: "btn-ghost btn-sm", title: "End every session this user has, on every device", onclick: async () => {
+            if (!(await confirmDialog("Sign " + u.username + " out on every device? They will need to sign in again.", "Sign out everywhere"))) return;
+            try { await API.post("/api/admin/users/" + encodeURIComponent(u.username) + "/sessions/revoke", {}); toast(u.username + " was signed out everywhere"); } catch (ex) { toast(ex.message, "error"); }
+          } }, "Sign out everywhere") : null,
           u.username !== ME.username ? el("button", { class: "btn-ghost btn-sm btn-danger", onclick: () => toggleDisabled(u, body) }, u.disabled ? "Enable" : "Disable") : null))));
     }
     wrap.appendChild(t);

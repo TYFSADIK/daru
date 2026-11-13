@@ -3,10 +3,42 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
 // Session is an authenticated login.
+// SessionMeta describes where a session signed in from. Callers attach it
+// to the context with WithSessionMeta; NewSession stores it.
+type SessionMeta struct {
+	IP        string
+	UserAgent string
+	Method    string // local, ldap, oidc, saml
+}
+
+type sessionMetaKey struct{}
+
+// WithSessionMeta returns ctx carrying m for NewSession.
+func WithSessionMeta(ctx context.Context, m SessionMeta) context.Context {
+	return context.WithValue(ctx, sessionMetaKey{}, m)
+}
+
+// SessionInfo is one active session, as listed to its owner or an admin.
+// ID is a prefix of the token hash: enough to name the session, useless
+// as a credential.
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+	Method    string    `json:"method"`
+	Current   bool      `json:"current"`
+}
+
+// SessionID is the public identifier of a session token.
+func SessionID(token string) string { return hashToken(token)[:16] }
+
 type Session struct {
 	Token     string    `json:"-"`
 	Username  string    `json:"username"`
@@ -57,9 +89,14 @@ func (m *Manager) NewSession(ctx context.Context, u *User) (string, error) {
 		return "", err
 	}
 	expires := time.Now().UTC().Add(m.sessionTTL)
+	meta, _ := ctx.Value(sessionMetaKey{}).(SessionMeta)
+	ua := meta.UserAgent
+	if len(ua) > 300 {
+		ua = ua[:300]
+	}
 	sql := fmt.Sprintf(
-		"INSERT INTO sessions (token_hash, username, role, expires_at) VALUES (%s, %s, %s, %s)",
-		q(hash), q(u.Username), q(u.Role), chTime(expires))
+		"INSERT INTO sessions (token_hash, username, role, expires_at, ip, user_agent, method) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+		q(hash), q(u.Username), q(u.Role), chTime(expires), q(meta.IP), q(ua), q(meta.Method))
 	if err := m.st.Exec(ctx, sql); err != nil {
 		return "", err
 	}
@@ -112,19 +149,61 @@ func (m *Manager) RevokeAll(ctx context.Context, username string) error {
 
 func (m *Manager) revoke(ctx context.Context, where string) error {
 	res, err := m.st.Query(ctx, fmt.Sprintf(
-		"SELECT token_hash, username, role, toString(expires_at) FROM sessions FINAL WHERE %s AND revoked = 0", where))
+		"SELECT token_hash, username, role, toString(expires_at), toString(created_at), ip, user_agent, method FROM sessions FINAL WHERE %s AND revoked = 0", where))
 	if err != nil {
 		return err
 	}
 	for _, row := range res.Rows {
 		expires, _ := time.Parse("2006-01-02 15:04:05.999", str(row[3]))
+		created, _ := time.Parse("2006-01-02 15:04:05.999", str(row[4]))
 		if err := m.st.Exec(ctx, fmt.Sprintf(
-			"INSERT INTO sessions (token_hash, username, role, expires_at, revoked, revoked_at) VALUES (%s, %s, %s, %s, 1, now64(3))",
-			q(str(row[0])), q(str(row[1])), q(str(row[2])), chTime(expires))); err != nil {
+			"INSERT INTO sessions (token_hash, username, role, expires_at, created_at, ip, user_agent, method, revoked, revoked_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, now64(3))",
+			q(str(row[0])), q(str(row[1])), q(str(row[2])), chTime(expires), chTime(created),
+			q(str(row[5])), q(str(row[6])), q(str(row[7])))); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ListSessions returns a user's active sessions, newest first. current is
+// the caller's own token, marked in the result; it may be empty.
+func (m *Manager) ListSessions(ctx context.Context, username, current string) ([]SessionInfo, error) {
+	res, err := m.st.Query(ctx, fmt.Sprintf(
+		"SELECT token_hash, toString(created_at), toString(expires_at), ip, user_agent, method FROM sessions FINAL WHERE username = %s AND revoked = 0 AND expires_at > now64(3) ORDER BY created_at DESC LIMIT 200",
+		q(username)))
+	if err != nil {
+		return nil, err
+	}
+	cur := ""
+	if current != "" {
+		cur = hashToken(current)
+	}
+	out := make([]SessionInfo, 0, len(res.Rows))
+	for _, row := range res.Rows {
+		h := str(row[0])
+		if len(h) < 16 {
+			continue
+		}
+		created, _ := time.Parse("2006-01-02 15:04:05.999", str(row[1]))
+		expires, _ := time.Parse("2006-01-02 15:04:05.999", str(row[2]))
+		out = append(out, SessionInfo{ID: h[:16], CreatedAt: created, ExpiresAt: expires,
+			IP: str(row[3]), UserAgent: str(row[4]), Method: str(row[5]), Current: h == cur})
+	}
+	return out, nil
+}
+
+// RevokeSession revokes one of username's sessions by its ID.
+func (m *Manager) RevokeSession(ctx context.Context, username, id string) error {
+	if len(id) != 16 || strings.Trim(id, "0123456789abcdef") != "" {
+		return fmt.Errorf("invalid session id")
+	}
+	return m.revoke(ctx, fmt.Sprintf("username = %s AND startsWith(token_hash, %s)", q(username), q(id)))
+}
+
+// RevokeOthers revokes every session of username except the one for keep.
+func (m *Manager) RevokeOthers(ctx context.Context, username, keep string) error {
+	return m.revoke(ctx, fmt.Sprintf("username = %s AND token_hash != %s", q(username), q(hashToken(keep))))
 }
 
 // PurgeExpired deletes expired and revoked sessions.

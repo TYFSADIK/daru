@@ -43,7 +43,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "too many failed logins, try again later")
 		return
 	}
-	user, token, err := s.Auth.Login(r.Context(), req.Username, req.Password, req.TOTP)
+	user, token, err := s.Auth.Login(s.sessionCtx(r, "local"), req.Username, req.Password, req.TOTP)
 	if err != nil && !errors.Is(err, auth.ErrTOTPRequired) && s.LDAP != nil {
 		// Not a local account, or a wrong local password: try the
 		// directory. resolveExternal refuses LDAP sign in to an account
