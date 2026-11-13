@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Daru: self-hosted log analytics and SIEM. Search logs, dashboards, alerts, incident triage, and authorized recon tooling, all on hardware you control.">
+<title>Daru</title>
+<link rel="icon" href="favicon.ico" sizes="32x32 64x64">
+<link rel="apple-touch-icon" href="logo-mark.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="signed-out">
+<a class="skip-link" href="#view">Skip to main content</a>
+<button id="nav-toggle" class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">&#9776;</button>
+<div id="app" class="app hidden">
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="brand">
+      <img src="logo-mark.png" alt="" class="brand-logo" width="28" height="28">
+      <span class="brand-name">Daru</span>
+    </div>
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip"><span id="user-name"></span><span class="role-badge" id="user-role"></span></div>
+      <div class="foot-actions">
+        <button class="theme-toggle" id="theme-toggle" title="Toggle light or dark theme"><span id="theme-ic">&#9684;</span><span id="theme-label">Light</span></button>
+        <button class="btn-ghost btn-sm" id="logout-btn">Sign out</button>
+      </div>
+      <div class="version" id="app-version" data-version="v0.2.0">Daru v0.2.0</div>
+    </div>
+  </aside>
+  <main class="main" id="view" tabindex="-1"></main>
+</div>
+
+<div id="login" class="login hidden">
+  <form class="login-card" id="login-form">
+    <div class="login-brand">
+      <img src="logo-full.png" alt="Daru Tech Analytics" class="login-logo" width="280" height="95">
+      <h1 class="sr-only">Daru</h1>
+    </div>
+    <p class="login-sub">Self-hosted log analytics and SIEM</p>
+    <label>Username<input name="username" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <label>Authenticator code (only if TOTP is enabled)<input name="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>
+    <button type="submit" class="btn-primary">Sign in</button>
+    <a id="sso-btn" class="btn-ghost sso-btn hidden" href="/api/oidc/login">Sign in with SSO</a>
+    <p class="login-error" id="login-error" role="alert"></p>
+  </form>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

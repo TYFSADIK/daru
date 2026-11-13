@@ -1,0 +1,10 @@
+.git
+.github
+docs
+dist
+daru
+daru.exe
+.data
+*.log
+.env
+.DS_Store

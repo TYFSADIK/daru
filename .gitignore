@@ -1,0 +1,8 @@
+/daru
+/daru.exe
+/dist/
+/data/
+*.test
+*.log
+.env
+.DS_Store

@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - name: Version drift check
+        run: |
+          grep -q 'go 1.27.3' go.mod
+          grep -q 'golang:1.27.3' Dockerfile
+          grep -q 'GOVER=1.27.3' install.sh
+          grep -q '1.27.3' install.ps1
+          grep -q 'Go-1.27' README.md
+      - name: Format check
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
+      - name: JS syntax check
+        run: node --check internal/web/static/app.js
+      - name: Shell syntax check
+        run: |
+          bash -n install.sh
+          bash -n scripts/backup.sh
+          bash -n scripts/restore.sh
+      - name: Clean tree check
+        run: test -z "$(git status --porcelain -- daru daru.exe dist/)" || (git status --porcelain && exit 1)
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - name: gosec
+        uses: securego/gosec@master
+        with:
+          args: ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        target:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: linux,   goarch: arm }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: android, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - name: Build ${{ matrix.target.goos }}/${{ matrix.target.goarch }}
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+        run: go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/daru
+
+  integration:
+    # Store tests against a real ClickHouse, plus a check that the least
+    # privilege app user created by the compose init script can do what Daru
+    # needs and nothing more.
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8
+        env:
+          CLICKHOUSE_USER: daru
+          CLICKHOUSE_PASSWORD: ci-admin-password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:8123/ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Store integration tests
+        env:
+          DARU_TEST_CH: http://127.0.0.1:8123
+          DARU_TEST_USER: daru
+          DARU_TEST_PASS: ci-admin-password
+        run: go test -count=1 -run 'TestRoundTrip|TestPortDiff' ./internal/store/
+      - name: Least privilege app user
+        run: ./scripts/check-clickhouse-privileges.sh http://127.0.0.1:8123 daru ci-admin-password
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker build
+        run: docker build -t daru:ci .
+      - name: Compose config check
+        run: docker compose -f deploy/docker-compose.yml config -q
+      - name: Backup and restore scripts check
+        run: |
+          ./scripts/backup.sh --help
+          ./scripts/restore.sh --help

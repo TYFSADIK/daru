@@ -1,0 +1,82 @@
+# Self-host Daru with one command: docker compose up -d
+#
+# This starts ClickHouse (storage) and Daru (API, ingest, UI). No API keys,
+# no external services.
+#
+# Passwords are REQUIRED. There are no defaults: compose fails fast when
+# CLICKHOUSE_PASSWORD, CLICKHOUSE_APP_PASSWORD, or DARU_ADMIN_PASSWORD is
+# unset. Generate them once, for example with: openssl rand -hex 16
+#   export CLICKHOUSE_PASSWORD=$(openssl rand -hex 16)
+#   export CLICKHOUSE_APP_PASSWORD=$(openssl rand -hex 16)
+#   export DARU_ADMIN_PASSWORD=$(openssl rand -hex 16)
+#   docker compose up -d
+#
+# ClickHouse privileges are split. The "daru" ClickHouse user
+# (CLICKHOUSE_PASSWORD) only runs schema changes and retention drops. Daru
+# does everything else as "daru_app" (CLICKHOUSE_APP_PASSWORD), which has
+# only SELECT, INSERT, and row level ALTER DELETE/UPDATE. daru_app is created on the first
+# start by clickhouse-init/10-daru-users.sh. On a volume created before
+# this split, run deploy/clickhouse-users.sql once instead.
+#
+# Daru listens on all interfaces inside its own container, but the port is
+# published on 127.0.0.1 only, so the UI is reachable from this host and
+# not from the LAN. To serve Daru on the network, put a TLS reverse proxy
+# in front of it and set DARU_SECURE_COOKIES=true.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: daru
+      CLICKHOUSE_USER: daru
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set, see the header of this file}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      DARU_APP_USER: daru_app
+      DARU_APP_PASSWORD: ${CLICKHOUSE_APP_PASSWORD:?CLICKHOUSE_APP_PASSWORD must be set, see the header of this file}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    # Publish the HTTP interface so a Daru running on the host (for example
+    # after ./install.sh) can reach it at 127.0.0.1:8123. The Daru container
+    # below talks to it over the compose network as http://clickhouse:8123.
+    ports:
+      - "127.0.0.1:8123:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  daru:
+    build: ..
+    image: tyfsadik/daru:latest
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      DARU_CLICKHOUSE_URL: http://clickhouse:8123
+      DARU_CLICKHOUSE_DB: daru
+      DARU_CLICKHOUSE_USER: daru_app
+      DARU_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_APP_PASSWORD:?CLICKHOUSE_APP_PASSWORD must be set, see the header of this file}
+      DARU_CLICKHOUSE_ADMIN_USER: daru
+      DARU_CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set, see the header of this file}
+      DARU_ADMIN_USER: ${DARU_ADMIN_USER:-admin}
+      DARU_ADMIN_PASSWORD: ${DARU_ADMIN_PASSWORD:?DARU_ADMIN_PASSWORD must be set, see the header of this file}
+      DARU_LISTEN: ":8088"
+      # DARU_SECURE_COOKIES: "true" # set when serving behind a TLS proxy
+      # DARU_TLS_CERT: /certs/fullchain.pem # mount a volume to use built-in TLS
+      # DARU_TLS_KEY: /certs/privkey.pem
+      # DARU_ALLOW_TOOL_UPDATE: "false" # tool updates stay disabled unless set to "true"
+      DARU_WEBHOOK_SECRET: ${DARU_WEBHOOK_SECRET:-} # 16+ chars; signs alert webhooks
+      DARU_METRICS_TOKEN: ${DARU_METRICS_TOKEN:-}   # 16+ chars; required for /metrics from outside the container
+    ports:
+      - "127.0.0.1:8088:8088"
+
+volumes:
+  clickhouse-data:
