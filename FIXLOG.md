@@ -403,6 +403,31 @@ newline framing, and refused from outside the allowlist; a revoked session
 gets 401 at once while the others keep working, and one user cannot end
 another's session; incident notes, assignment, and status in the browser.
 
+## Follow up, 2026-11-13 (9): Live Monitor on a real Mac
+
+Reviewed against the real page on macOS rather than demo data:
+- Every interface was labeled "wired", including VPN tunnels, Apple
+  peer-to-peer links, and the Wi-Fi port. Interfaces now carry a kind
+  (wifi, wired, vpn, virtual); macOS Wi-Fi comes from networksetup.
+- The browser re-sorted interfaces alphabetically, so the busy one was
+  fourth, and nine cards pushed packet capture off screen. Capture now
+  comes first; interfaces carrying traffic show as cards, the rest fold
+  into a table. Long IPv6 addresses no longer overflow their card, IPv4 is
+  preferred, and link-local addresses are marked. The utilization bar shows
+  only when the link speed is known.
+- Packets per second was an average since the capture started, on the
+  browser's clock; it is now the last second's count from the packets' own
+  timestamps, with a one-minute sparkline. Packet times are 24-hour with
+  milliseconds.
+- New: pause and resume, a filter over captured packets, a details view
+  per packet, and a .pcap download (tshark -w, or a tee of the tcpdump
+  stream; capped at 200 MB; 0600 file in a 0700 folder; owner or admin
+  only; removed after 30 minutes and on startup; audited). Disabled buttons
+  now look disabled across the UI.
+Verified on macOS with real packets: DNS queries to 192.0.2.1 captured and
+decoded, pause/resume and filtering, the downloaded pcap read by capinfos
+and tshark with the same packets, and another power user refused the file.
+
 ## Remaining honest limits
 
 - govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on

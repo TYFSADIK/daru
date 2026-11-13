@@ -1,6 +1,7 @@
 package recon
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -106,5 +107,23 @@ func TestChooseCaptureEngine(t *testing.T) {
 	}
 	if eng != engineTshark && eng != engineTsharkPipe && eng != engineTcpdump {
 		t.Errorf("unexpected engine %q", eng)
+	}
+}
+
+func TestCappedFileStopsAtLimit(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "cap-*.pcap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	c := &cappedFile{f: f, max: 10}
+	for _, chunk := range []string{"abcdef", "ghijkl", "mnop"} {
+		if n, err := c.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("Write must report the full length to the tee: n=%d err=%v", n, err)
+		}
+	}
+	b, _ := os.ReadFile(f.Name())
+	if string(b) != "abcdefghij" {
+		t.Errorf("file = %q, want the first 10 bytes", b)
 	}
 }

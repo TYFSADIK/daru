@@ -153,6 +153,11 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent-solid); width: 16px; height: 16px; }
 select { cursor: pointer; }
+/* Disabled controls look disabled everywhere. */
+button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+button:disabled:hover { filter: none; border-color: var(--border); color: inherit; }
+.btn-primary:disabled:hover { color: var(--on-accent); border-color: var(--accent-solid); }
+
 /* Keyboard focus is always visible. */
 button:focus-visible, a:focus-visible, .results-tab:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
@@ -308,3 +313,50 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 .timeline li.tl-note::before { background: var(--accent); }
 .timeline .tl-meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
 .timeline li.tl-note > div:last-child { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 8px 10px; }
+
+/* Live Monitor */
+.live-section { margin-bottom: 18px; }
+.live-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.live-head h3 { margin: 0; font-size: 15px; color: var(--text-strong); }
+.capture-card { padding: 16px 18px; }
+.capture-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.capture-controls .grow, .toolbar .grow { flex: 1 1 260px; min-width: 200px; }
+label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--muted); white-space: nowrap; }
+a.btn-ghost { display: inline-flex; align-items: center; text-decoration: none; }
+.capture-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.capture-status { margin: 10px 0 14px; color: var(--muted); font-size: 13px; }
+.rate-spark { display: flex; flex-direction: column; gap: 4px; margin: -6px 0 14px; }
+.breakdowns { margin-bottom: 4px; }
+.packet-body { max-height: 520px; border: 1px solid var(--border); border-radius: var(--radius); }
+table.packets td { padding-top: 5px; padding-bottom: 5px; }
+table.packets .info-cell { white-space: normal; color: var(--text); min-width: 220px; }
+tr.clickable { cursor: pointer; }
+tr.clickable:focus-visible td { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.iface-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.iface-card { padding: 14px 16px; min-width: 0; }
+.iface-top { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.iface-name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; color: var(--text-strong); }
+.iface-addr { font-family: var(--mono); font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iface-addr small { color: var(--muted); font-family: var(--sans); }
+.iface-rates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.iface-rates > div { display: flex; flex-direction: column; }
+.rate-l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.rate-v { font-family: var(--mono); font-size: 18px; color: var(--text-strong); font-weight: 600; }
+.iface-kv { font-size: 12.5px; margin-top: 10px; }
+.iface-kv dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.addr-cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { margin-top: 10px; }
+.meter-l { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.meter-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 3px; }
+.meter-bar > div { height: 100%; transition: width .4s; }
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 32px; }
+.spark span { flex: 1; min-width: 2px; background: var(--accent); opacity: .75; border-radius: 1px 1px 0 0; }
+.spark.spark-wide { height: 40px; }
+.iface-other { margin-top: 12px; }
+.iface-other summary { cursor: pointer; color: var(--muted); font-size: 13.5px; padding: 6px 0; }
+.iface-other .table-scroll { margin-top: 8px; }
+.kind-wifi { background: var(--panel-2); background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
+.kind-wired { background: var(--panel-2); background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.kind-vpn { background: var(--panel-2); background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); }
+.kind-virtual { background: var(--panel-2); color: var(--muted); }

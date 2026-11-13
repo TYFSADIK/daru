@@ -201,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/live/interfaces", s.authed(auth.RoleUser, s.handleLiveInterfaces))
 	mux.HandleFunc("POST /api/live/capture/start", s.authed(auth.RolePower, s.handleLiveCaptureStart))
 	mux.HandleFunc("GET /api/live/capture", s.authed(auth.RolePower, s.captureGate(s.handleLiveCapture)))
+	mux.HandleFunc("GET /api/live/capture/pcap/{id}", s.authed(auth.RolePower, s.handleCaptureDownload))
 
 	// Administration.
 	mux.HandleFunc("GET /api/admin/users", s.authed(auth.RoleAdmin, s.handleListUsers))

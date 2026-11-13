@@ -24,6 +24,7 @@ type InterfaceInfo struct {
 	MTU          int      `json:"mtu"`
 	Up           bool     `json:"up"`
 	Wireless     bool     `json:"wireless"`
+	Kind         string   `json:"kind"` // wifi, wired, vpn, or virtual
 	Addrs        []string `json:"addrs"`
 	SpeedMbps    int      `json:"speed_mbps"`      // wired link speed, when known
 	OperState    string   `json:"oper_state"`      // up, down, dormant...
@@ -77,6 +78,7 @@ func Interfaces(ctx context.Context) []InterfaceInfo {
 			enrichWiFi(ctx, &info)
 		}
 		info.Addrs = interfaceAddrs(name)
+		info.Kind = interfaceKind(name, info.Wireless)
 		out = append(out, info)
 	}
 	return out
@@ -225,8 +227,10 @@ func portableInterfaces(ctx context.Context) []InterfaceInfo {
 		return nil
 	}
 	counters := map[string][2]uint64{}
+	ports := map[string]string{}
 	if runtime.GOOS == "darwin" {
 		counters = darwinCounters(ctx)
+		ports = darwinHardwarePorts(ctx)
 	}
 	now := time.Now().UnixMilli()
 	var out []InterfaceInfo
@@ -246,6 +250,12 @@ func portableInterfaces(ctx context.Context) []InterfaceInfo {
 		}
 		if c, ok := counters[ifc.Name]; ok {
 			info.RxBytes, info.TxBytes = c[0], c[1]
+		}
+		port := ports[ifc.Name]
+		info.Wireless = port == "Wi-Fi" || port == "AirPort"
+		info.Kind = interfaceKind(ifc.Name, info.Wireless)
+		if port != "" && info.Kind == "virtual" && strings.Contains(port, "Ethernet") {
+			info.Kind = "wired"
 		}
 		// Skip idle placeholders (macOS lists bridge members and other
 		// virtual ports that have no address and carry no traffic).
@@ -311,6 +321,55 @@ func parseDarwinNetstat(b []byte) map[string][2]uint64 {
 		tx, err2 := strconv.ParseUint(f[len(f)-2], 10, 64)
 		if err1 == nil && err2 == nil {
 			out[name] = [2]uint64{rx, tx}
+		}
+	}
+	return out
+}
+
+// interfaceKind classifies an interface for display: wifi, wired, vpn
+// (tunnels), or virtual (bridges, container and peer-to-peer links).
+func interfaceKind(name string, wireless bool) string {
+	if wireless {
+		return "wifi"
+	}
+	for _, p := range []string{"utun", "tun", "tap", "wg", "ppp", "ipsec", "gif", "stf", "tailscale", "zt", "nordlynx"} {
+		if strings.HasPrefix(name, p) {
+			return "vpn"
+		}
+	}
+	for _, p := range []string{"awdl", "llw", "anpi", "ap", "bridge", "br-", "br0", "docker", "veth", "virbr", "vmnet", "vboxnet", "lxc", "lxd", "cni", "flannel", "cali", "vnet", "p2p", "dummy", "bond", "team"} {
+		if strings.HasPrefix(name, p) {
+			return "virtual"
+		}
+	}
+	return "wired"
+}
+
+// darwinHardwarePorts maps device names to their macOS hardware port names
+// ("Wi-Fi", "Ethernet Adapter (en3)", "Thunderbolt Bridge").
+func darwinHardwarePorts(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(cctx, "/usr/sbin/networksetup", "-listallhardwareports").Output()
+	if err != nil {
+		return out
+	}
+	return parseHardwarePorts(b)
+}
+
+func parseHardwarePorts(b []byte) map[string]string {
+	out := map[string]string{}
+	port := ""
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		switch {
+		case strings.HasPrefix(line, "Hardware Port:"):
+			port = strings.TrimSpace(strings.TrimPrefix(line, "Hardware Port:"))
+		case strings.HasPrefix(line, "Device:") && port != "":
+			out[strings.TrimSpace(strings.TrimPrefix(line, "Device:"))] = port
+			port = ""
 		}
 	}
 	return out

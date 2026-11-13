@@ -383,6 +383,7 @@ func serve(log *slog.Logger) {
 		}
 	}()
 
+	api.CleanCaptureFiles() // saved captures from a previous run
 	srv := &api.Server{
 		Store:  st,
 		Auth:   am,

@@ -99,19 +99,28 @@ top talkers, and the domains each device contacts:**
 
 ## Live Monitor
 
-The **Live Monitor** section turns Daru into a lightweight network observability
-console, all read live from the kernel and your capture tools:
+The **Live Monitor** is a packet capture console with live interface stats:
 
-- **Interfaces & WiFi**, per interface: type, IP, MAC, link speed, and for
-  WiFi the SSID, band, signal quality, link rate, and live throughput.
-- **Live packet capture**, start an in-browser capture on any interface and
-  watch decoded packets stream in a Wireshark-style table: source/destination,
-  protocol, length, and a **Host/SNI** column showing the TLS SNI, DNS query, or
-  HTTP host per packet. Live **protocol breakdown**, **top talkers**, and **top
-  destinations** panels update every second. Capture works without root or
-  wireshark-group membership: Daru captures with `tcpdump` (which carries
-  `CAP_NET_RAW`) and decodes the stream with `tshark`, so you get full
-  application-layer detail (DNS/TLS-SNI/HTTP) live.
+- **Packet capture** on any interface, with an optional BPF filter, in a
+  Wireshark-style table: time to the millisecond, source and destination,
+  protocol, length, and a **Host / SNI** column (TLS server name, DNS query,
+  or HTTP host). Live packets per second (with a one-minute sparkline),
+  bytes captured, and protocol, top-talker, and top-destination breakdowns.
+- **Pause** freezes the table so you can read it while packets keep being
+  counted; **filter** narrows the captured packets by address, protocol,
+  host, or info; **click a packet** for its decoded fields and a link to
+  search your logs for that peer.
+- **Download .pcap**: every capture is saved (up to 200 MB) so you can open
+  it in Wireshark. Only the user who ran it, or an admin, can download it;
+  it is kept for 30 minutes and every download is audited.
+- **Interfaces**: the interfaces carrying traffic first, labeled Wi-Fi,
+  wired, VPN tunnel, or virtual, with live throughput and a sparkline. Wi-Fi
+  shows SSID, band, signal, and link rate on Linux. VPN tunnels and virtual
+  links are folded into a list below.
+
+Capture works without root or wireshark-group membership: Daru captures with
+`tcpdump` (which carries `CAP_NET_RAW`) and decodes with `tshark`, or uses
+tshark directly where `dumpcap` is allowed to capture.
 
 ## God-mode orchestrators
 

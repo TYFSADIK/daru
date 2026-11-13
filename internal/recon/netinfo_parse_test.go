@@ -48,3 +48,22 @@ utun3*     1380  <Link#20>                             0     0          0       
 		t.Errorf("utun3* should be parsed as utun3")
 	}
 }
+
+func TestInterfaceKind(t *testing.T) {
+	for name, want := range map[string]string{
+		"en0": "wired", "eth0": "wired", "enp3s0": "wired", "utun3": "vpn", "wg0": "vpn", "tun0": "vpn",
+		"tailscale0": "vpn", "awdl0": "virtual", "llw0": "virtual", "bridge100": "virtual", "docker0": "virtual",
+		"veth12ab": "virtual", "br-4f2a": "virtual",
+	} {
+		if got := interfaceKind(name, false); got != want {
+			t.Errorf("interfaceKind(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if interfaceKind("wlan0", true) != "wifi" {
+		t.Error("wireless interfaces are wifi")
+	}
+	ports := parseHardwarePorts([]byte("Hardware Port: Wi-Fi\nDevice: en0\nEthernet Address: aa\n\nHardware Port: Thunderbolt Bridge\nDevice: bridge0\n"))
+	if ports["en0"] != "Wi-Fi" || ports["bridge0"] != "Thunderbolt Bridge" {
+		t.Errorf("parseHardwarePorts = %v", ports)
+	}
+}

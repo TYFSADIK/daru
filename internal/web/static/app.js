@@ -1951,267 +1951,397 @@ function signalLabel(dbm) {
 
 let liveState = { ifTimer: null, prev: {}, es: null };
 
+// ===== Live Monitor helpers =====
+const KIND_LABEL = { wifi: "Wi-Fi", wired: "Wired", vpn: "VPN tunnel", virtual: "Virtual" };
+const KIND_ORDER = { wifi: 0, wired: 1, vpn: 2, virtual: 3 };
+
+// primaryAddr picks the address worth showing: IPv4, then a global IPv6,
+// then link-local (marked, since it is only reachable on the local link).
+function primaryAddr(addrs) {
+  const list = (addrs || []).map((a) => a.split("/")[0]);
+  const v4 = list.find((a) => a.includes("."));
+  if (v4) return { addr: v4, note: "" };
+  const global6 = list.find((a) => a.includes(":") && !a.toLowerCase().startsWith("fe80"));
+  if (global6) return { addr: global6, note: "" };
+  if (list.length) return { addr: list[0], note: "link-local" };
+  return { addr: "-", note: "" };
+}
+
+// isActiveIface: carries the host's traffic (an IPv4 address on a Wi-Fi or
+// wired port, or any interface that moved data). VPN tunnels and virtual
+// links without IPv4 stay in the "other" group.
+function isActiveIface(i) {
+  const v4 = (i.addrs || []).some((a) => a.includes("."));
+  if (v4) return true;
+  return (i.kind === "wifi" || i.kind === "wired") && (i.rx_bytes + i.tx_bytes) > 0;
+}
+
+// sparkline draws recent values as a small bar strip.
+function sparkline(values, cls = "") {
+  const max = Math.max(1, ...values);
+  const wrap = el("div", { class: "spark " + cls, "aria-hidden": "true" });
+  for (const v of values) wrap.appendChild(el("span", { style: `height:${Math.max(4, Math.round((v / max) * 100))}%` }));
+  return wrap;
+}
+
+// fmtClock is a 24-hour time with milliseconds, for packets.
+function fmtClock(ms) {
+  const d = new Date(ms);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+}
+
 async function renderLive(view) {
-  // Clean up any previous stream/timers when the view is re-rendered.
   stopLiveStream();
   if (liveState.ifTimer) { clearInterval(liveState.ifTimer); liveState.ifTimer = null; }
   liveState.prev = {};
-
-  view.appendChild(pageHead("Live Monitor",
-    "Real-time interfaces, WiFi link quality, throughput, and packet capture"));
-
-  // ---- Interfaces / WiFi ----
-  view.appendChild(el("h3", { style: "margin:4px 0 10px;font-size:15px" }, "Interfaces & WiFi"));
-  const ifWrap = el("div", { class: "cards" }, el("div", { class: "spinner" }, "Reading interfaces..."));
-  view.appendChild(ifWrap);
-
-  async function loadIfaces() {
-    let data;
-    try { data = await API.get("/api/live/interfaces"); }
-    catch (ex) { ifWrap.innerHTML = ""; ifWrap.appendChild(el("div", { class: "empty" }, ex.message)); return; }
-    const now = Date.now();
-    const ifaces = (data.interfaces || [])
-      .filter((i) => i.up && !i.name.startsWith("veth") && !i.name.startsWith("br-"))
-      .sort((a, b) => (b.wireless - a.wireless) || a.name.localeCompare(b.name));
-    ifWrap.innerHTML = "";
-    if (!ifaces.length) { ifWrap.appendChild(el("div", { class: "empty" }, "No active interfaces.")); return; }
-    for (const i of ifaces) {
-      // Live throughput from counter deltas.
-      let rxbps = 0, txbps = 0;
-      const p = liveState.prev[i.name];
-      if (p && now > p.ts) {
-        const dt = (now - p.ts) / 1000;
-        rxbps = Math.max(0, (i.rx_bytes - p.rx) * 8 / dt);
-        txbps = Math.max(0, (i.tx_bytes - p.tx) * 8 / dt);
-      }
-      liveState.prev[i.name] = { rx: i.rx_bytes, tx: i.tx_bytes, ts: now };
-
-      const rows = [];
-      const addr = (i.addrs || []).find((a) => a.includes(".")) || (i.addrs || [])[0] || "-";
-      rows.push(["IP", addr.split("/")[0]]);
-      rows.push(["MAC", i.mac || "-"]);
-      if (i.wireless) {
-        rows.push(["SSID", i.ssid || "-"]);
-        const band = i.band || (i.freq_mhz ? (i.freq_mhz >= 5000 ? "5 GHz" : "2.4 GHz") : "");
-        rows.push(["Band", (band ? band : "-") + (i.freq_mhz ? " · " + i.freq_mhz + " MHz" : "")]);
-        if (i.wifi_generation) rows.push(["Standard", i.wifi_generation + (i.channel_width ? " · " + i.channel_width : "")]);
-        rows.push(["Signal", signalLabel(i.signal_dbm) || "-"]);
-        rows.push(["Link rate ↓", i.rx_mbps ? i.rx_mbps + " Mbps" : (i.rx_bitrate ? i.rx_bitrate.split(" ").slice(0, 2).join(" ") : "-")]);
-        rows.push(["Link rate ↑", i.tx_mbps ? i.tx_mbps + " Mbps" : (i.tx_bitrate ? i.tx_bitrate.split(" ").slice(0, 2).join(" ") : "-")]);
-      } else {
-        rows.push(["Link speed", i.speed_mbps ? i.speed_mbps + " Mbps" : "-"]);
-        rows.push(["MTU", String(i.mtu || "-")]);
-      }
-      rows.push(["Throughput ↓", fmtBps(rxbps)]);
-      rows.push(["Throughput ↑", fmtBps(txbps)]);
-      rows.push(["Total RX/TX", fmtBytes(i.rx_bytes) + " / " + fmtBytes(i.tx_bytes)]);
-
-      const card = el("div", { class: "card" });
-      card.appendChild(el("h3", {},
-        (i.wireless ? "📶 " : "🖧 ") + i.name,
-        el("span", { class: "badge sev-low", style: "margin-left:8px;font-weight:600" }, i.wireless ? "WiFi" : "wired")));
-      const tbl = el("table", { style: "width:100%;font-size:12.5px;margin-top:6px" });
-      for (const [k, v] of rows) {
-        tbl.appendChild(el("tr", {},
-          el("td", { style: "color:var(--muted);padding:2px 8px 2px 0;white-space:nowrap" }, k),
-          el("td", { style: "font-family:var(--mono);color:var(--text-strong);text-align:right" }, v)));
-      }
-      card.appendChild(tbl);
-      // WiFi signal quality bar (−90 dBm = 0%, −30 dBm = 100%).
-      if (i.wireless && i.signal_dbm) {
-        const pct = Math.max(0, Math.min(100, Math.round((i.signal_dbm + 90) / 60 * 100)));
-        const color = pct >= 66 ? "var(--green)" : pct >= 40 ? "var(--amber)" : "var(--red)";
-        card.appendChild(el("div", { style: "margin-top:8px" },
-          el("div", { style: "display:flex;justify-content:space-between;font-size:11px;color:var(--muted)" },
-            el("span", {}, "Signal quality"), el("span", {}, pct + "%")),
-          el("div", { style: "height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:2px" },
-            el("div", { style: `height:100%;width:${pct}%;background:${color}` }))));
-      }
-      // Live throughput bar scaled to the interface's link speed (or 1 Gbps).
-      const linkbps = (i.speed_mbps ? i.speed_mbps : 1000) * 1e6;
-      const curbps = liveState.prev[i.name] ? Math.max(rxbps, txbps) : 0;
-      const tpct = Math.max(0, Math.min(100, Math.round(curbps / linkbps * 100)));
-      card.appendChild(el("div", { style: "margin-top:8px" },
-        el("div", { style: "display:flex;justify-content:space-between;font-size:11px;color:var(--muted)" },
-          el("span", {}, "Live utilization"), el("span", {}, fmtBps(curbps))),
-        el("div", { style: "height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:2px" },
-          el("div", { style: `height:100%;width:${Math.max(2, tpct)}%;background:var(--accent);transition:width .4s` }))));
-      ifWrap.appendChild(card);
-    }
-  }
-  await loadIfaces();
-  liveState.ifTimer = setInterval(() => {
-    if (location.hash === "#/live") loadIfaces();
-    else { clearInterval(liveState.ifTimer); liveState.ifTimer = null; }
-  }, 2000);
-
-  // ---- Live packet capture ----
+  liveState.hist = liveState.hist || {};
   const canCap = roleAtLeast(ME.role, "power");
-  view.appendChild(el("h3", { style: "margin:22px 0 10px;font-size:15px" }, "Live packet capture"));
-  if (!canCap) {
-    view.appendChild(el("div", { class: "notice" }, "Power or admin role required to capture packets."));
-    return;
-  }
 
-  // Offline PCAP analysis: upload a .pcap and decode it with tshark (DNS/SNI/
-  // HTTP), no capture permission needed.
+  // Offline PCAP analysis lives in the header: it needs no capture rights.
   const pcapIn = el("input", { type: "file", accept: ".pcap,.pcapng,.cap", style: "display:none" });
-  const pcapBtn = el("button", { class: "btn-ghost btn-sm", onclick: () => pcapIn.click() }, "⬆ Analyze a PCAP file");
+  const pcapBtn = el("button", { class: "btn-ghost", onclick: () => pcapIn.click() }, "Analyze a PCAP file");
   pcapIn.addEventListener("change", async () => {
     const f = pcapIn.files[0];
     if (!f) return;
     const fd = new FormData();
     fd.append("file", f);
-    pcapBtn.disabled = true; pcapBtn.textContent = "Analyzing " + f.name + "…";
+    pcapBtn.disabled = true; pcapBtn.textContent = "Analyzing " + f.name + "...";
     try {
       const csrf = csrfToken();
       const res = await fetch("/api/recon/pcap", { method: "POST", body: fd, headers: csrf ? { "X-Daru-CSRF": csrf } : {} });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "upload failed");
-      toast("PCAP uploaded; decoded packets appear in Recon → " + f.name);
+      toast("PCAP uploaded; decoded packets appear in Recon under " + f.name);
       setTimeout(() => { location.hash = "#/tool/tshark-pcap"; }, 800);
     } catch (ex) { toast(ex.message, "error"); }
-    finally { pcapBtn.disabled = false; pcapBtn.textContent = "⬆ Analyze a PCAP file"; pcapIn.value = ""; }
+    finally { pcapBtn.disabled = false; pcapBtn.textContent = "Analyze a PCAP file"; pcapIn.value = ""; }
   });
-  view.appendChild(el("div", { class: "toolbar", style: "margin-bottom:10px" }, pcapBtn, pcapIn));
+  view.appendChild(pageHead("Live Monitor", "Interface throughput and live packet capture", canCap ? [pcapBtn] : []));
+  view.appendChild(pcapIn);
 
-  const ctrl = el("div", { class: "toolbar", style: "flex-wrap:wrap;gap:10px;margin-bottom:12px" });
-  const ifSel = el("select", {});
-  const filterIn = el("input", { placeholder: "capture filter (BPF), e.g. tcp port 443", style: "min-width:260px" });
-  const durSel = el("select", {});
-  [["60", "60s"], ["300", "5 min"], ["900", "15 min"]].forEach(([v, l]) => durSel.appendChild(el("option", { value: v }, l)));
+  // ---------- Interfaces ----------
+  const ifSection = el("section", { class: "live-section" });
+  const ifHead = el("div", { class: "live-head" }, el("h3", {}, "Interfaces"), el("span", { class: "meta" }, ""));
+  const activeWrap = el("div", { class: "iface-grid" }, el("div", { class: "spinner" }, "Reading interfaces..."));
+  const otherWrap = el("details", { class: "iface-other" });
+  ifSection.append(ifHead, activeWrap, otherWrap);
+  view.appendChild(ifSection);
+  let ifaces = [];
+
+  function ifaceCard(i, rx, tx) {
+    const pa = primaryAddr(i.addrs);
+    const card = el("div", { class: "card iface-card" });
+    card.appendChild(el("div", { class: "iface-top" },
+      el("div", { class: "iface-name" }, i.name, el("span", { class: "badge kind-" + (i.kind || "wired") }, KIND_LABEL[i.kind] || "Wired")),
+      el("div", { class: "iface-addr", title: (i.addrs || []).join("\n") }, pa.addr, pa.note ? el("small", {}, " " + pa.note) : null)));
+    card.appendChild(el("div", { class: "iface-rates" },
+      el("div", {}, el("span", { class: "rate-l" }, "Down"), el("span", { class: "rate-v" }, fmtBps(rx))),
+      el("div", {}, el("span", { class: "rate-l" }, "Up"), el("span", { class: "rate-v" }, fmtBps(tx)))));
+    card.appendChild(sparkline(liveState.hist[i.name] || [0]));
+    const rows = [["MAC", i.mac || "-"], ["MTU", String(i.mtu || "-")]];
+    if (i.speed_mbps) rows.push(["Link speed", i.speed_mbps + " Mbps"]);
+    if (i.kind === "wifi") {
+      if (i.ssid) rows.push(["SSID", i.ssid]);
+      const band = i.band || (i.freq_mhz ? (i.freq_mhz >= 5925 ? "6 GHz" : i.freq_mhz >= 5000 ? "5 GHz" : "2.4 GHz") : "");
+      if (band) rows.push(["Band", band + (i.freq_mhz ? " · " + i.freq_mhz + " MHz" : "")]);
+      if (i.wifi_generation) rows.push(["Standard", i.wifi_generation + (i.channel_width ? " · " + i.channel_width : "")]);
+      if (i.signal_dbm) rows.push(["Signal", signalLabel(i.signal_dbm)]);
+      if (i.rx_mbps) rows.push(["Link rate", i.rx_mbps + " / " + (i.tx_mbps || "-") + " Mbps"]);
+    }
+    rows.push(["Total in / out", fmtBytes(i.rx_bytes) + " / " + fmtBytes(i.tx_bytes)]);
+    const dl = el("dl", { class: "kv iface-kv" });
+    for (const [k, v] of rows) { dl.appendChild(el("dt", {}, k)); dl.appendChild(el("dd", { title: v }, v)); }
+    card.appendChild(dl);
+    if (i.kind === "wifi" && i.signal_dbm) {
+      const pct = Math.max(0, Math.min(100, Math.round(((i.signal_dbm + 90) / 60) * 100)));
+      card.appendChild(el("div", { class: "meter" }, el("div", { class: "meter-l" }, el("span", {}, "Signal quality"), el("span", {}, pct + "%")),
+        el("div", { class: "meter-bar" }, el("div", { style: `width:${pct}%;background:${pct >= 66 ? "var(--green)" : pct >= 40 ? "var(--amber)" : "var(--red)"}` }))));
+    }
+    // Utilization only means something against a known link speed.
+    const link = (i.speed_mbps || (i.kind === "wifi" ? i.rx_mbps : 0)) * 1e6;
+    if (link > 0) {
+      const pct = Math.min(100, Math.round((Math.max(rx, tx) / link) * 100));
+      card.appendChild(el("div", { class: "meter" }, el("div", { class: "meter-l" }, el("span", {}, "Link utilization"), el("span", {}, pct + "%")),
+        el("div", { class: "meter-bar" }, el("div", { style: `width:${Math.max(1, pct)}%;background:var(--accent)` }))));
+    }
+    return card;
+  }
+
+  async function loadIfaces() {
+    let data;
+    try { data = await API.get("/api/live/interfaces"); }
+    catch (ex) { activeWrap.innerHTML = ""; activeWrap.appendChild(el("div", { class: "empty" }, ex.message)); return; }
+    const now = Date.now();
+    ifaces = (data.interfaces || []).filter((i) => i.up);
+    const rate = {};
+    for (const i of ifaces) {
+      const p = liveState.prev[i.name];
+      let rx = 0, tx = 0;
+      if (p && now > p.ts) {
+        const dt = (now - p.ts) / 1000;
+        rx = Math.max(0, ((i.rx_bytes - p.rx) * 8) / dt);
+        tx = Math.max(0, ((i.tx_bytes - p.tx) * 8) / dt);
+      }
+      liveState.prev[i.name] = { rx: i.rx_bytes, tx: i.tx_bytes, ts: now };
+      rate[i.name] = [rx, tx];
+      const h = (liveState.hist[i.name] = liveState.hist[i.name] || []);
+      if (p) h.push(rx + tx);
+      if (h.length > 40) h.shift();
+    }
+    const total = (i) => i.rx_bytes + i.tx_bytes;
+    const active = ifaces.filter(isActiveIface).sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (total(b) - total(a)));
+    const other = ifaces.filter((i) => !isActiveIface(i)).sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || a.name.localeCompare(b.name));
+    activeWrap.innerHTML = "";
+    if (!active.length) activeWrap.appendChild(el("div", { class: "empty" }, ifaces.length ? "No interface is carrying traffic right now." : "No active interfaces."));
+    for (const i of active) activeWrap.appendChild(ifaceCard(i, ...rate[i.name]));
+    ifHead.lastChild.textContent = `${active.length} active · ${other.length} other`;
+    const open = otherWrap.open;
+    otherWrap.innerHTML = "";
+    otherWrap.open = open;
+    if (other.length) {
+      otherWrap.appendChild(el("summary", {}, `${other.length} other interfaces (VPN tunnels, virtual and peer-to-peer links)`));
+      const t = el("table", { class: "grid" }, el("tr", {}, ...["Interface", "Type", "Address", "Down", "Up", "Total in / out"].map((h) => el("th", {}, h))));
+      for (const i of other) {
+        const pa = primaryAddr(i.addrs);
+        t.appendChild(el("tr", {}, el("td", { class: "nowrap" }, i.name), el("td", { class: "nowrap" }, KIND_LABEL[i.kind] || "Wired"),
+          el("td", { class: "addr-cell", title: (i.addrs || []).join("\n") }, pa.addr + (pa.note ? " (" + pa.note + ")" : "")),
+          el("td", { class: "nowrap" }, fmtBps(rate[i.name][0])), el("td", { class: "nowrap" }, fmtBps(rate[i.name][1])),
+          el("td", { class: "nowrap" }, fmtBytes(i.rx_bytes) + " / " + fmtBytes(i.tx_bytes))));
+      }
+      otherWrap.appendChild(el("div", { class: "table-scroll" }, t));
+    }
+    fillIfaceSelect();
+  }
+
+  // ---------- Packet capture ----------
+  const capCard = el("section", { class: "card live-section capture-card" });
+  view.insertBefore(capCard, ifSection); // capture first: it is what people come here for
+  capCard.appendChild(el("div", { class: "live-head" }, el("h3", {}, "Packet capture"),
+    el("span", { class: "meta" }, "Decodes DNS queries, TLS server names, and HTTP hosts as packets arrive")));
+  if (!canCap) {
+    capCard.appendChild(el("div", { class: "notice" }, "Packet capture needs the power or admin role."));
+    await loadIfaces();
+    liveState.ifTimer = setInterval(() => { if (location.hash === "#/live") loadIfaces(); else { clearInterval(liveState.ifTimer); liveState.ifTimer = null; } }, 2000);
+    return;
+  }
+  const ifSel = el("select", { "aria-label": "Interface", style: "max-width:300px" });
+  let ifSelFilled = false;
+  function fillIfaceSelect() {
+    if (ifSelFilled || !ifaces.length) return;
+    ifSelFilled = true;
+    const total = (i) => i.rx_bytes + i.tx_bytes;
+    const act = ifaces.filter(isActiveIface).sort((a, b) => total(b) - total(a));
+    const oth = ifaces.filter((i) => !isActiveIface(i));
+    const group = (label, list) => {
+      if (!list.length) return;
+      const g = el("optgroup", { label });
+      for (const i of list) g.appendChild(el("option", { value: i.name }, `${i.name} · ${KIND_LABEL[i.kind] || "Wired"}${primaryAddr(i.addrs).addr !== "-" ? " · " + primaryAddr(i.addrs).addr : ""}`));
+      ifSel.appendChild(g);
+    };
+    group("Active", act);
+    group("Other", oth);
+  }
+  const filterIn = el("input", { placeholder: "Capture filter (BPF), e.g. tcp port 443 or host 10.0.0.5", "aria-label": "Capture filter", class: "grow" });
+  const durSel = el("select", { "aria-label": "Duration" }, ...[["60", "1 minute"], ["300", "5 minutes"], ["900", "15 minutes"]].map(([v, l]) => el("option", { value: v }, l)));
+  const saveChk = el("input", { type: "checkbox" });
   const startBtn = el("button", { class: "btn-primary" }, "Start capture");
   const stopBtn = el("button", { class: "btn-ghost", disabled: "" }, "Stop");
-  const saveChk = el("input", { type: "checkbox" });
-  ctrl.appendChild(el("label", { style: "display:flex;align-items:center;gap:6px;margin:0" }, "Interface", ifSel));
-  ctrl.appendChild(filterIn);
-  ctrl.appendChild(el("label", { style: "display:flex;align-items:center;gap:6px;margin:0" }, "Duration", durSel));
-  ctrl.appendChild(el("label", { style: "display:flex;align-items:center;gap:6px;margin:0", title: "Store captured packets as searchable events (index=network)" }, saveChk, el("span", {}, "Save to search")));
-  ctrl.appendChild(startBtn);
-  ctrl.appendChild(stopBtn);
-  view.appendChild(ctrl);
+  const pauseBtn = el("button", { class: "btn-ghost", disabled: "", title: "Freeze the table to read it; packets keep being counted" }, "Pause");
+  const dlBtn = el("a", { class: "btn-ghost hidden", download: "" }, "Download .pcap");
+  capCard.appendChild(el("div", { class: "capture-controls" },
+    el("label", { class: "inline" }, "Interface", ifSel), filterIn,
+    el("label", { class: "inline" }, "Duration", durSel),
+    el("label", { class: "inline", title: "Also store captured packets as searchable events (index=network)" }, saveChk, "Save to search")));
+  capCard.appendChild(el("div", { class: "capture-actions" }, startBtn, stopBtn, pauseBtn, dlBtn));
+  const status = el("div", { class: "capture-status" }, "Ready. Pick an interface and start a capture.");
+  capCard.appendChild(status);
 
-  // Populate interface selector (capturable physical/wireless interfaces).
-  try {
-    const data = await API.get("/api/live/interfaces");
-    for (const i of (data.interfaces || []).filter((x) => x.up && !x.name.startsWith("veth") && !x.name.startsWith("br-"))) {
-      ifSel.appendChild(el("option", { value: i.name }, i.name + (i.wireless ? " (WiFi)" : "")));
-    }
-  } catch (_) {}
-
-  // Live stats row.
   const stats = el("div", { class: "stat-row" });
-  view.appendChild(stats);
-  const capStats = { total: 0, start: 0, proto: {}, talkers: {}, hosts: {} };
+  const sparkWrap = el("div", { class: "rate-spark" });
+  const breakdown = el("div", { class: "cards breakdowns" });
+  capCard.append(stats, sparkWrap, breakdown);
+
+  const tableBar = el("div", { class: "toolbar", style: "margin:12px 0 8px" });
+  const tableFilter = el("input", { placeholder: "Filter packets: address, protocol, host, info", "aria-label": "Filter captured packets", class: "grow" });
+  const tableCount = el("span", { class: "meta" }, "");
+  tableBar.append(tableFilter, tableCount);
+  const body = el("div", { class: "results-body packet-body" }, el("div", { class: "empty" }, "No packets yet."));
+  capCard.append(tableBar, body);
+
+  const MAX_ROWS = 2000;
+  let packets = [];            // newest first, all captured this run (capped)
+  let paused = false;
+  let pending = 0;             // arrived while paused
+  const cap = { total: 0, bytes: 0, proto: {}, talkers: {}, hosts: {}, perSec: new Map(), lastSec: 0 };
+
+  const hostOf = (p) => p.sni || p.dns_query || p.http_host || "";
+  const matches = (p, q) => !q || [p.src_ip, p.dst_ip, p.src_port, p.dst_port, p.protocol, hostOf(p), p.info, p.src_mac, p.dst_mac].some((v) => v && String(v).toLowerCase().includes(q));
+
+  let shownCount = 0;
+  function drawCount() {
+    tableCount.textContent = packets.length
+      ? `${fmtNum(shownCount)} shown of ${fmtNum(packets.length - pending)}${packets.length >= MAX_ROWS ? " (newest " + fmtNum(MAX_ROWS) + " kept)" : ""}${paused ? " · paused" + (pending ? ", " + fmtNum(pending) + " new" : "") : ""}`
+      : "";
+  }
+  function drawTable() {
+    const q = tableFilter.value.trim().toLowerCase();
+    const shown = packets.slice(paused ? pending : 0).filter((p) => matches(p, q)).slice(0, 400);
+    shownCount = shown.length;
+    drawCount();
+    body.innerHTML = "";
+    if (!shown.length) { body.appendChild(el("div", { class: "empty" }, packets.length ? "No packets match the filter." : "No packets yet.")); return; }
+    const t = el("table", { class: "grid packets" }, el("tr", {}, ...["Time", "Source", "Destination", "Protocol", "Length", "Host / SNI", "Info"].map((h) => el("th", {}, h))));
+    for (const p of shown) {
+      const src = p.src_ip ? p.src_ip + (p.src_port ? ":" + p.src_port : "") : (p.src_mac || "?");
+      const dst = p.dst_ip ? p.dst_ip + (p.dst_port ? ":" + p.dst_port : "") : (p.dst_mac || "?");
+      const host = hostOf(p);
+      const tr = el("tr", { class: "clickable", tabindex: "0", title: "Show packet details" },
+        el("td", { class: "nowrap" }, fmtClock(p.time_ms)), el("td", { class: "nowrap" }, src), el("td", { class: "nowrap" }, dst),
+        el("td", {}, el("span", { class: "badge " + protoClass(p.protocol) }, p.protocol || "?")),
+        el("td", { class: "num" }, String(p.length || 0)),
+        el("td", {}, host ? el("span", { class: "badge badge-ok" }, host) : "-"),
+        el("td", { class: "info-cell" }, p.info || ""));
+      const open = () => packetDetail(p);
+      tr.addEventListener("click", open);
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+      t.appendChild(tr);
+    }
+    body.appendChild(t);
+  }
+  tableFilter.addEventListener("input", drawTable);
+
+  function packetDetail(p) {
+    const fields = [["Time", fmtTime(new Date(p.time_ms).toISOString()) + "." + String(p.time_ms % 1000).padStart(3, "0")], ["Frame", "#" + p.seq],
+      ["Protocol", p.protocol], ["Length", (p.length || 0) + " bytes"], ["Source", (p.src_ip || "-") + (p.src_port ? " port " + p.src_port : "")],
+      ["Destination", (p.dst_ip || "-") + (p.dst_port ? " port " + p.dst_port : "")], ["Source MAC", p.src_mac], ["Destination MAC", p.dst_mac],
+      ["DNS query", p.dns_query], ["TLS server name (SNI)", p.sni], ["HTTP host", p.http_host], ["Info", p.info]].filter(([, v]) => v);
+    const overlay = el("div", { class: "modal-overlay", role: "dialog", "aria-modal": "true" });
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    const dl = el("dl", { class: "kv" });
+    for (const [k, v] of fields) { dl.appendChild(el("dt", {}, k)); dl.appendChild(el("dd", { style: "white-space:pre-wrap;word-break:break-all" }, String(v))); }
+    const peer = p.dst_ip && !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.)/.test(p.dst_ip) ? p.dst_ip : p.src_ip;
+    overlay.appendChild(el("div", { class: "modal modal-wide" },
+      el("div", { style: "display:flex;justify-content:space-between;align-items:center" }, el("h3", {}, "Packet #" + p.seq),
+        el("button", { class: "btn-ghost btn-sm", onclick: close }, "Close")),
+      el("p", { class: "modal-sub" }, "Decoded by tshark. For every protocol layer, download the capture and open it in Wireshark."),
+      dl,
+      el("div", { class: "modal-actions" },
+        peer ? el("button", { class: "btn-ghost", onclick: () => { close(); searchState.query = 'index=network "' + peer + '"'; location.hash = "#/search"; } }, "Search logs for " + peer) : null)));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+  }
+
   function drawStats() {
     stats.innerHTML = "";
-    const secs = capStats.start ? Math.max(1, (Date.now() - capStats.start) / 1000) : 1;
-    stats.appendChild(statCard(capStats.total, "Packets"));
-    stats.appendChild(statCard(Math.round(capStats.total / secs), "Packets/sec"));
-    const topProto = Object.entries(capStats.proto).sort((a, b) => b[1] - a[1])[0];
-    stats.appendChild(statCard(topProto ? topProto[0] : "-", "Top protocol"));
-    const topTalk = Object.entries(capStats.talkers).sort((a, b) => b[1] - a[1])[0];
-    stats.appendChild(statCard(topTalk ? topTalk[0] : "-", "Top talker"));
-  }
-  drawStats();
-
-  // Protocol + talkers breakdown panels.
-  const breakWrap = el("div", { class: "cards", style: "margin-bottom:14px" });
-  view.appendChild(breakWrap);
-  function drawBreakdown() {
-    breakWrap.innerHTML = "";
-    breakWrap.appendChild(miniBreakdown("Protocols", capStats.proto, capStats.total));
-    breakWrap.appendChild(miniBreakdown("Top talkers", capStats.talkers, capStats.total));
-    breakWrap.appendChild(miniBreakdown("Top destinations (Host / SNI)", capStats.hosts, Object.values(capStats.hosts).reduce((a, b) => a + b, 0)));
+    const latest = cap.lastSec;
+    const rate = latest ? (cap.perSec.get(latest - 1) || cap.perSec.get(latest) || 0) : 0;
+    const topProto = Object.entries(cap.proto).sort((a, b) => b[1] - a[1])[0];
+    const topTalk = Object.entries(cap.talkers).sort((a, b) => b[1] - a[1])[0];
+    stats.append(statCard(fmtNum(cap.total), "Packets"), statCard(fmtNum(rate), "Packets / second"),
+      statCard(fmtBytes(cap.bytes), "Captured"), statCard(topProto ? topProto[0] : "-", "Top protocol"), statCard(topTalk ? topTalk[0] : "-", "Top talker"));
+    sparkWrap.innerHTML = "";
+    if (latest) {
+      const secs = [];
+      for (let t = latest - 59; t <= latest; t++) secs.push(cap.perSec.get(t) || 0);
+      sparkWrap.append(el("span", { class: "meta" }, "Packets per second, last minute"), sparkline(secs, "spark-wide"));
+    }
+    breakdown.innerHTML = "";
+    if (cap.total) breakdown.append(miniBreakdown("Protocols", cap.proto, cap.total), miniBreakdown("Top talkers", cap.talkers, cap.total), miniBreakdown("Top destinations (host / SNI)", cap.hosts, cap.total));
   }
 
-  // Packet table (rolling, newest first, capped).
-  const results = el("div", { class: "results" });
-  results.appendChild(el("div", { class: "results-tabs" }, el("span", { class: "results-tab active", id: "cap-title" }, "Packet stream")));
-  const body = el("div", { class: "results-body" }, el("div", { class: "empty" }, "Start a capture to see live packets."));
-  results.appendChild(body);
-  view.appendChild(results);
-
-  const MAX_ROWS = 400;
-  let table = null;
-
-  function ensureTable() {
-    if (table) return;
-    body.innerHTML = "";
-    table = el("table", { class: "grid" }, el("tr", {}, ...["Time", "Source", "→", "Destination", "Proto", "Len", "Host / SNI", "Info"].map((h) => el("th", {}, h))));
-    body.appendChild(table);
-  }
   function addPacket(p) {
-    ensureTable();
-    const t = new Date(p.time_ms).toLocaleTimeString();
-    const src = p.src_ip ? p.src_ip + (p.src_port ? ":" + p.src_port : "") : (p.src_mac || "?");
-    const dst = p.dst_ip ? p.dst_ip + (p.dst_port ? ":" + p.dst_port : "") : (p.dst_mac || "?");
-    // Dedicated Host/SNI column: the Wireshark-grade application identity.
-    const host = p.sni || p.dns_query || p.http_host || "";
-    const hostCell = host
-      ? el("td", { style: "white-space:normal" }, el("span", { class: "badge badge-ok", style: "font-weight:500" }, host))
-      : el("td", { style: "color:var(--muted)" }, "-");
-    const row = el("tr", {},
-      el("td", {}, t), el("td", {}, src), el("td", { style: "color:var(--muted)" }, "→"),
-      el("td", {}, dst),
-      el("td", {}, el("span", { class: "badge " + protoClass(p.protocol) }, p.protocol || "?")),
-      el("td", { class: "num" }, String(p.length || 0)),
-      hostCell,
-      el("td", { style: "white-space:normal" }, p.info || ""));
-    // newest first
-    if (table.rows.length > 1) table.insertBefore(row, table.rows[1]);
-    else table.appendChild(row);
-    while (table.rows.length > MAX_ROWS + 1) table.deleteRow(table.rows.length - 1);
-
-    // stats
-    capStats.total++;
-    if (p.protocol) capStats.proto[p.protocol] = (capStats.proto[p.protocol] || 0) + 1;
-    if (p.src_ip) capStats.talkers[p.src_ip] = (capStats.talkers[p.src_ip] || 0) + 1;
-    if (host) capStats.hosts[host] = (capStats.hosts[host] || 0) + 1;
+    cap.total++;
+    cap.bytes += p.length || 0;
+    if (p.protocol) cap.proto[p.protocol] = (cap.proto[p.protocol] || 0) + 1;
+    if (p.src_ip) cap.talkers[p.src_ip] = (cap.talkers[p.src_ip] || 0) + 1;
+    const h = hostOf(p);
+    if (h) cap.hosts[h] = (cap.hosts[h] || 0) + 1;
+    // Rate from the packets' own timestamps, so a burst delivered late
+    // still counts against the second it was captured in.
+    const sec = Math.floor(p.time_ms / 1000);
+    cap.perSec.set(sec, (cap.perSec.get(sec) || 0) + 1);
+    if (sec > cap.lastSec) cap.lastSec = sec;
+    for (const k of cap.perSec.keys()) if (k < cap.lastSec - 120) cap.perSec.delete(k);
+    packets.unshift(p);
+    if (packets.length > MAX_ROWS) packets.length = MAX_ROWS;
+    if (paused) pending++;
   }
 
-  let statTimer = null;
+  let redrawTimer = null;
+  function setRunning(on) {
+    startBtn.disabled = on; stopBtn.disabled = !on; pauseBtn.disabled = !on && !paused;
+    ifSel.disabled = on; filterIn.disabled = on; durSel.disabled = on; saveChk.disabled = on;
+  }
+  pauseBtn.addEventListener("click", () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    if (!paused) pending = 0;
+    drawTable();
+  });
+
   async function startCapture() {
     stopLiveStream();
-    capStats.total = 0; capStats.start = Date.now(); capStats.proto = {}; capStats.talkers = {}; capStats.hosts = {};
-    table = null;
-    body.innerHTML = "";
-    body.appendChild(el("div", { class: "spinner" }, "Starting capture on " + ifSel.value + "..."));
+    packets = []; paused = false; pending = 0; pauseBtn.textContent = "Pause";
+    Object.assign(cap, { total: 0, bytes: 0, proto: {}, talkers: {}, hosts: {}, perSec: new Map(), lastSec: 0 });
+    dlBtn.classList.add("hidden");
+    status.textContent = "Starting capture on " + ifSel.value + "...";
+    drawStats(); drawTable();
     let start;
     try {
       start = await API.post("/api/live/capture/start", { iface: ifSel.value, duration: parseInt(durSel.value, 10) || 60, filter: filterIn.value.trim(), save: saveChk.checked });
-    } catch (ex) {
-      body.innerHTML = "";
-      body.appendChild(el("div", { class: "empty" }, "Capture error: " + ex.message));
-      toast(ex.message, "error");
-      return;
-    }
-    const token = start.stream_token;
-    if (!token) { toast("Capture start did not return a stream token", "error"); return; }
-    const es = new EventSource("/api/live/capture?stream_token=" + encodeURIComponent(token));
+    } catch (ex) { status.textContent = "Capture error: " + ex.message; toast(ex.message, "error"); return; }
+    if (!start.stream_token) { toast("Capture start did not return a stream token", "error"); return; }
+    const es = new EventSource("/api/live/capture?stream_token=" + encodeURIComponent(start.stream_token));
     liveState.es = es;
-    startBtn.disabled = true; stopBtn.disabled = false;
-    document.getElementById("cap-title").textContent = "Capturing on " + ifSel.value + "...";
-    es.addEventListener("open", () => { ensureTable(); });
+    setRunning(true);
+    const started = Date.now();
+    const dur = parseInt(durSel.value, 10) || 60;
+    let pcapID = "";
+    // The server's own "open" message carries the capture file's id, so the
+    // download works even when the capture is stopped by hand.
+    es.addEventListener("open", (e) => {
+      try { pcapID = JSON.parse(e.data || "{}").pcap_id || pcapID; } catch (_) {}
+      status.textContent = `Capturing on ${ifSel.value}${filterIn.value.trim() ? " · filter: " + filterIn.value.trim() : ""}`;
+    });
+    liveState.pcapID = () => pcapID;
     es.addEventListener("packet", (e) => { try { addPacket(JSON.parse(e.data)); } catch (_) {} });
     es.addEventListener("end", (e) => {
       let d = {}; try { d = JSON.parse(e.data); } catch (_) {}
-      if (d.error) { body.innerHTML = ""; body.appendChild(el("div", { class: "empty" }, "Capture error: " + d.error)); toast(d.error, "error"); }
-      stopCapture("Capture ended (" + (d.total || capStats.total) + " packets)");
+      if (d.error) { status.textContent = "Capture error: " + d.error; toast(d.error, "error"); }
+      if (d.pcap_id) pcapID = d.pcap_id;
+      finish(d.error ? null : `Capture finished: ${fmtNum(d.total || cap.total)} packets${d.saved ? ", " + fmtNum(d.saved) + " saved to search" : ""}${d.pcap_id ? ". The .pcap download is kept for 30 minutes." : ""}`);
     });
-    es.onerror = () => { stopCapture("Capture stopped"); };
-    statTimer = setInterval(() => { drawStats(); drawBreakdown(); }, 1000);
-    liveState.statTimer = statTimer;
+    es.onerror = () => finish("Capture stopped.");
+    redrawTimer = setInterval(() => {
+      drawStats();
+      if (!paused) drawTable(); else drawCount();
+      const left = Math.max(0, dur - Math.round((Date.now() - started) / 1000));
+      if (liveState.es) status.textContent = `Capturing on ${ifSel.value}${filterIn.value.trim() ? " · filter: " + filterIn.value.trim() : ""} · ${left}s left`;
+    }, 1000);
+    liveState.statTimer = redrawTimer;
   }
-  function stopCapture(msg) {
+  function finish(msg) {
     stopLiveStream();
-    if (statTimer) { clearInterval(statTimer); statTimer = null; }
-    drawStats(); drawBreakdown();
-    startBtn.disabled = false; stopBtn.disabled = true;
-    document.getElementById("cap-title").textContent = msg || "Packet stream";
+    const id = liveState.pcapID ? liveState.pcapID() : "";
+    if (id && cap.total) { dlBtn.href = "/api/live/capture/pcap/" + encodeURIComponent(id); dlBtn.classList.remove("hidden"); }
+    if (redrawTimer) { clearInterval(redrawTimer); redrawTimer = null; }
+    setRunning(false);
+    pauseBtn.disabled = true;
+    if (paused) { paused = false; pauseBtn.textContent = "Pause"; pending = 0; }
+    drawStats(); drawTable();
+    if (msg) status.textContent = msg;
   }
   startBtn.addEventListener("click", startCapture);
-  stopBtn.addEventListener("click", () => stopCapture("Capture stopped (" + capStats.total + " packets)"));
+  stopBtn.addEventListener("click", () => finish(`Capture stopped: ${fmtNum(cap.total)} packets.`));
+  drawStats();
+
+  await loadIfaces();
+  liveState.ifTimer = setInterval(() => {
+    if (location.hash === "#/live") loadIfaces();
+    else { clearInterval(liveState.ifTimer); liveState.ifTimer = null; }
+  }, 2000);
 }
 
 function stopLiveStream() {
