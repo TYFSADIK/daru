@@ -166,6 +166,10 @@ installer.
 - **Android (Termux)**: the Daru binary runs, but ClickHouse does not run on
   Android. Point Daru at a ClickHouse on another machine with
   `DARU_CLICKHOUSE_URL=http://<host>:8123`.
+- **macOS**: Live Monitor lists interfaces with live throughput and captures
+  packets (tcpdump needs BPF access, which Wireshark's ChmodBPF installer
+  grants). WiFi details (SSID, signal, link rate) come from Linux's `iw`, so
+  they show on Linux only.
 - **Windows**: the Daru binary and the web UI run, but most recon tooling
   (nmap, masscan, tcpdump, tshark, arp-scan) is Linux-only, so Recon and Live
   Monitor are limited on Windows.

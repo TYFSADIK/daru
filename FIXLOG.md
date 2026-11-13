@@ -341,6 +341,21 @@ findings and its folder is removed; main keeps 365 days across a restart;
 index=web finds the data; no CSP violations in the console. Tests, vet,
 golangci-lint v2, gosec, govulncheck, and all 7 cross builds pass.
 
+## Follow up, 2026-11-13 (7): Live Monitor on macOS
+
+The README screenshot of Live Monitor used mocked data, so the real feature
+was checked separately. Interface stats were read only from Linux's
+/sys/class/net, so on macOS (and anywhere without it) the interface list
+was empty, the capture picker had no interface, and Start capture failed,
+even though capture itself works there. Without /sys/class/net, Daru now
+lists interfaces with net.Interfaces(), reads byte counters from
+`netstat -ibn` on macOS, hides idle placeholders (no address, no
+traffic), and puts the busiest IPv4 interface first so it is the capture
+default. WiFi details remain Linux only (they come from `iw`).
+Verified in the real UI on macOS: en0 is the default, a capture filtered to
+host 192.0.2.1 recorded exactly the 6 test packets sent, Stop ended it, and
+en0 showed live throughput. The Linux path is unchanged.
+
 ## Remaining honest limits
 
 - govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on

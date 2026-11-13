@@ -1,11 +1,15 @@
 package recon
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,7 +48,9 @@ type InterfaceInfo struct {
 func Interfaces(ctx context.Context) []InterfaceInfo {
 	ifaces, err := netInterfaces()
 	if err != nil {
-		return nil
+		// No /sys/class/net (macOS, Windows, some containers): list the
+		// interfaces portably so Live Monitor still offers them for capture.
+		return portableInterfaces(ctx)
 	}
 	now := time.Now().UnixMilli()
 	var out []InterfaceInfo
@@ -207,4 +213,105 @@ func atoi(s string) int {
 func atou(s string) uint64 {
 	n, _ := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
 	return n
+}
+
+// portableInterfaces lists up, non-loopback interfaces through the Go
+// standard library, for systems without /sys/class/net. Byte counters come
+// from netstat on macOS; elsewhere they stay zero. WiFi details are not
+// available this way.
+func portableInterfaces(ctx context.Context) []InterfaceInfo {
+	ifcs, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	counters := map[string][2]uint64{}
+	if runtime.GOOS == "darwin" {
+		counters = darwinCounters(ctx)
+	}
+	now := time.Now().UnixMilli()
+	var out []InterfaceInfo
+	for _, ifc := range ifcs {
+		if ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagUp == 0 {
+			continue
+		}
+		info := InterfaceInfo{
+			Name: ifc.Name, MAC: ifc.HardwareAddr.String(), MTU: ifc.MTU,
+			Up: ifc.Flags&net.FlagRunning != 0, SampledAt: now,
+			Addrs: interfaceAddrs(ifc.Name),
+		}
+		if info.Up {
+			info.OperState = "up"
+		} else {
+			info.OperState = "down"
+		}
+		if c, ok := counters[ifc.Name]; ok {
+			info.RxBytes, info.TxBytes = c[0], c[1]
+		}
+		// Skip idle placeholders (macOS lists bridge members and other
+		// virtual ports that have no address and carry no traffic).
+		if len(info.Addrs) == 0 && info.RxBytes == 0 && info.TxBytes == 0 {
+			continue
+		}
+		out = append(out, info)
+	}
+	// Busy IPv4 interfaces first, so the capture picker's default is the
+	// one carrying the host's traffic rather than an idle virtual bridge.
+	rank := func(i InterfaceInfo) int {
+		r := 0
+		if hasIPv4(i.Addrs) {
+			r += 2
+		}
+		if i.RxBytes > 0 {
+			r++
+		}
+		return r
+	}
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) > rank(out[j]) })
+	return out
+}
+
+func hasIPv4(addrs []string) bool {
+	for _, a := range addrs {
+		if ip, _, err := net.ParseCIDR(a); err == nil && ip.To4() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// darwinCounters reads cumulative rx/tx bytes per interface from
+// `netstat -ibn`, using each interface's <Link#N> row.
+func darwinCounters(ctx context.Context) map[string][2]uint64 {
+	out := map[string][2]uint64{}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(cctx, "/usr/sbin/netstat", "-ibn").Output()
+	if err != nil {
+		return out
+	}
+	return parseDarwinNetstat(b)
+}
+
+// parseDarwinNetstat parses `netstat -ibn`. Columns: Name Mtu Network
+// Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll, where Address may be
+// empty, so the byte columns are counted from the end of the line.
+func parseDarwinNetstat(b []byte) map[string][2]uint64 {
+	out := map[string][2]uint64{}
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) < 10 || !strings.HasPrefix(f[2], "<Link#") {
+			continue
+		}
+		name := strings.TrimSuffix(f[0], "*") // netstat marks down interfaces with *
+		if _, seen := out[name]; seen {
+			continue
+		}
+		rx, err1 := strconv.ParseUint(f[len(f)-5], 10, 64)
+		tx, err2 := strconv.ParseUint(f[len(f)-2], 10, 64)
+		if err1 == nil && err2 == nil {
+			out[name] = [2]uint64{rx, tx}
+		}
+	}
+	return out
 }

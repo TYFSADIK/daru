@@ -28,3 +28,23 @@ func TestBandForFreq(t *testing.T) {
 		t.Fatal("band mapping wrong")
 	}
 }
+
+func TestParseDarwinNetstat(t *testing.T) {
+	in := []byte(`Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+lo0        16384 <Link#1>                         46395     0   29370355    46395     0   29370355     0
+lo0        16384 127           127.0.0.1          46395     -   29370355    46395     -   29370355     -
+en0        1500  <Link#11>     f0:18:98:22:52:a1 9120345     0 8123456789  5012345     0  987654321     0
+en0        1500  10.0.0/24     10.0.0.52        9120345     - 8123456789  5012345     -  987654321     -
+utun3*     1380  <Link#20>                             0     0          0        0     0          0     0
+`)
+	got := parseDarwinNetstat(in)
+	if got["lo0"] != [2]uint64{29370355, 29370355} {
+		t.Errorf("lo0 = %v", got["lo0"])
+	}
+	if got["en0"] != [2]uint64{8123456789, 987654321} {
+		t.Errorf("en0 = %v (a row with a MAC address)", got["en0"])
+	}
+	if _, ok := got["utun3"]; !ok {
+		t.Errorf("utun3* should be parsed as utun3")
+	}
+}
