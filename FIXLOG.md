@@ -356,6 +356,53 @@ Verified in the real UI on macOS: en0 is the default, a capture filtered to
 host 192.0.2.1 recorded exactly the 6 test packets sent, Stop ended it, and
 en0 showed live throughput. The Linux path is unchanged.
 
+## Follow up, 2026-11-13 (8): production readiness
+
+UI, measured rather than eyeballed:
+- Contrast checked against WCAG AA (4.5:1). The light theme failed on the
+  colors that carry SIEM meaning: green 3.2:1, amber 3.3:1, info 3.8:1,
+  red 4.1:1, accent 4.3:1; white button text was 3.2:1 in the dark theme.
+  Every text color now passes on --bg, --panel, --panel-2, and the tinted
+  badge backgrounds; buttons use a separate --accent-solid.
+- All form controls follow the theme (several were bright browser
+  defaults), keyboard focus is always visible, small text is 11.5-13px.
+- Charts: y axis on whole-number steps, gridlines, labels sized to the
+  chart's width, tooltips. Dashboard charts no longer overflow their card.
+- Times show in the viewer's zone without milliseconds; activity tables
+  show relative times with the exact time on hover.
+- Fixes: the Security "High severity" card ignored critical events; MITRE
+  bars were scaled to the largest tactic (all full width when counts tie)
+  and now show each tactic's share; stats results no longer leave an empty
+  Fields panel; identifiers no longer wrap at hyphens.
+- Two-factor setup moved to a new Account page (Security links to it
+  while it is off). Sidebar icons are SVG.
+
+Security and operations:
+- Audit trail stored in ClickHouse (audit_log, two-year TTL) as well as
+  the server log, through a batching writer that never blocks a request
+  and flushes on shutdown. Admin > Audit log filters and exports it. The
+  app user's ALTER DELETE and UPDATE are revoked on audit_log, so Daru
+  cannot change or delete it; check-clickhouse-privileges.sh proves it.
+  Existing installs: run the REVOKE in deploy/clickhouse-users.sql.
+  Scans, schedules, saved searches, dashboards, pcap uploads, incident
+  changes, and session revocations are now audited too.
+- Syslog receiver (RFC 5424 and 3164, UDP and TCP, octet counting),
+  off by default, with a sender allowlist, a TCP connection cap, idle
+  timeouts, a 64 KB message cap, and the shared ingest rate limit. A device
+  whose clock runs ahead keeps its time in syslog_time and is indexed at
+  receive time, so its events stay searchable.
+- Sessions record IP, user agent, and sign in method. Users list and end
+  their sessions; admins sign a user out everywhere.
+- Incidents have a timeline with notes, assignment, and status changes.
+  Status was not validated before: any string was accepted, and an unknown
+  one dropped the incident out of the open and closed counts.
+
+Verified on the demo instance (ClickHouse 25.8): audit rows written,
+filtered, flushed on SIGTERM; syslog over UDP, TCP octet-counted, and TCP
+newline framing, and refused from outside the allowlist; a revoked session
+gets 401 at once while the others keep working, and one user cannot end
+another's session; incident notes, assignment, and status in the browser.
+
 ## Remaining honest limits
 
 - govulncheck (v1.9.0, run 2026-11-13 with Go 1.27.4; v1.1.4 crashes on

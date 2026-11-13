@@ -80,8 +80,15 @@ domains), so nothing here comes from a real network.
 <td><b>Catalog of all 59 tools, grouped by category</b><br><img src="docs/screenshot-tool-catalog.png" alt="Tool catalog"></td>
 </tr>
 <tr>
+<td><b>Incident timeline with notes, owner, and status</b><br><img src="docs/screenshot-incident.png" alt="Incident detail"></td>
+<td><b>Append-only audit trail with filters and CSV export</b><br><img src="docs/screenshot-audit.png" alt="Audit log"></td>
+</tr>
+<tr>
 <td><b>A dashboard and scan history for every tool</b><br><img src="docs/screenshot-recon-dashboard.png" alt="Per-tool dashboard"></td>
-<td><b>Sign in with a local account, LDAP, OIDC, or SAML</b><br><img src="docs/screenshot-login.png" alt="Sign in"></td>
+<td><b>Account: two-factor and active sessions</b><br><img src="docs/screenshot-account.png" alt="Account"></td>
+</tr>
+<tr>
+<td colspan="2"><b>Sign in with a local account, LDAP, OIDC, or SAML</b><br><img src="docs/screenshot-login.png" alt="Sign in" width="50%"></td>
 </tr>
 </table>
 
