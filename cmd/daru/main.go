@@ -425,6 +425,17 @@ func serve(log *slog.Logger) {
 	}
 	go sched.Run(ctx)
 	go srv.RunScheduler(ctx) // recurring recon scans
+
+	// Syslog receiver (off unless an address is set).
+	if udp, tcp := os.Getenv("DARU_SYSLOG_UDP"), os.Getenv("DARU_SYSLOG_TCP"); udp != "" || tcp != "" {
+		allow, err := parseCIDRList(os.Getenv("DARU_SYSLOG_ALLOW"))
+		if err != nil {
+			fatal(log, "invalid DARU_SYSLOG_ALLOW", err)
+		}
+		if err := srv.ServeSyslog(ctx, api.SyslogConfig{UDPAddr: udp, TCPAddr: tcp, Index: os.Getenv("DARU_SYSLOG_INDEX"), Allow: allow}); err != nil {
+			fatal(log, "syslog receiver failed to start", err)
+		}
+	}
 	// Per index retention runs on its own loop, whether or not any alert
 	// is scheduled.
 	go st.RunRetention(ctx, log, store.RetentionInterval)
@@ -690,4 +701,32 @@ func fatal(log *slog.Logger, msg string, err error) {
 		log.Error(msg)
 	}
 	os.Exit(1)
+}
+
+// parseCIDRList reads a comma separated list of CIDR ranges or single IPs.
+func parseCIDRList(v string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !strings.Contains(part, "/") {
+			ip := net.ParseIP(part)
+			if ip == nil {
+				return nil, fmt.Errorf("%q is not an IP address or CIDR range", part)
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			part = fmt.Sprintf("%s/%d", ip.String(), bits)
+		}
+		_, n, err := net.ParseCIDR(part)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not an IP address or CIDR range", part)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

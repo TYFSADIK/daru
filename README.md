@@ -185,7 +185,8 @@ your `PATH`, and run `daru serve`.
 
 ## Features
 
-- **Collect** logs over HTTP in the Splunk HEC format, as raw text, or as JSON.
+- **Collect** logs over HTTP in the Splunk HEC format, as raw text, or as
+  JSON, and over [syslog](#syslog) (UDP and TCP, RFC 5424 and 3164).
   Fields are pulled out automatically from `key=value` pairs and JSON.
 - **Search** with a pipe language and see results as tables, time charts, and
   bar charts, with a field sidebar for quick drill-down.
@@ -477,6 +478,36 @@ curl http://localhost:8088/services/collector/raw?sourcetype=syslog \
   --data-binary @/var/log/syslog
 ```
 
+## Syslog
+
+Daru receives syslog directly from firewalls, switches, routers, and Linux
+servers. It reads RFC 5424 and RFC 3164 (BSD) messages, over UDP and TCP,
+with newline or octet-counted (RFC 6587) framing.
+
+```bash
+export DARU_SYSLOG_UDP=:5514
+export DARU_SYSLOG_TCP=:5514
+export DARU_SYSLOG_ALLOW=10.0.0.0/8,192.168.10.5   # senders allowed (CIDR or IP)
+```
+
+Messages land in the `syslog` index (change it with `DARU_SYSLOG_INDEX`)
+with `facility`, `severity`, `app`, `pid`, and `msgid` fields, plus any
+`key=value` pairs in the message. A message with no hostname uses the
+sender's address as the host. If a device's clock runs ahead, Daru keeps
+the device's time in `syslog_time` and indexes the event at the time it
+arrived, so it stays searchable. Syslog shares the ingest rate limit.
+
+Set `DARU_SYSLOG_ALLOW`: syslog has no authentication, so without an
+allowlist anyone who can reach the port can write logs. Port 514 needs
+root, so listen on 5514 and point devices there, or redirect 514 to 5514
+with your firewall. To forward from a Linux server with rsyslog:
+
+```
+*.* @@daru.example.com:5514    # TCP; use a single @ for UDP
+```
+
+Try `index=syslog severity=error | stats count by host, app`.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -498,6 +529,9 @@ curl http://localhost:8088/services/collector/raw?sourcetype=syslog \
 | `DARU_SCAN_CONCURRENT_PER_USER` | `2` | Running recon scans per user, `-1` disables |
 | `DARU_SCAN_PER_HOUR_PER_USER` | `30` | Recon scans started per user per hour, `-1` disables |
 | `DARU_SCHEDULES_PER_USER` | `20` | Scheduled scans owned per user, `-1` disables |
+| `DARU_SYSLOG_UDP` / `DARU_SYSLOG_TCP` | off | Syslog listen address, e.g. `:5514` |
+| `DARU_SYSLOG_ALLOW` | any sender | Comma list of CIDR ranges or IPs allowed to send syslog |
+| `DARU_SYSLOG_INDEX` | `syslog` | Index for received syslog |
 | `DARU_OIDC_ISSUER` | | OIDC issuer URL; setting it enables single sign on |
 | `DARU_OIDC_CLIENT_ID` / `DARU_OIDC_CLIENT_SECRET` | | OIDC client credentials |
 | `DARU_OIDC_REDIRECT_URL` | | `https://<host>/api/oidc/callback` |
