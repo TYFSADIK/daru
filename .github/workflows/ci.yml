@@ -110,7 +110,7 @@ jobs:
           DARU_TEST_CH: http://127.0.0.1:8123
           DARU_TEST_USER: daru
           DARU_TEST_PASS: ci-admin-password
-        run: go test -count=1 -run 'TestRoundTrip|TestPortDiff' ./internal/store/
+        run: go test -count=1 -run 'TestRoundTrip|TestPortDiff|TestSharedStateLive' ./internal/store/
       - name: Least privilege app user
         run: ./scripts/check-clickhouse-privileges.sh http://127.0.0.1:8123 daru ci-admin-password
 

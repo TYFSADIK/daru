@@ -99,6 +99,7 @@ func newSAMLRigSigned(t *testing.T, autoCreate, signed bool) *samlRig {
 	_, _, certPEM, keyPEM := selfSigned(t, "daru-sp")
 	os.WriteFile(filepath.Join(dir, "sp.crt"), certPEM, 0o600)
 	os.WriteFile(filepath.Join(dir, "sp.key"), keyPEM, 0o600)
+	st := store.New(store.Config{URL: ch.URL, Database: "daru"})
 	sc, err := NewSAML(context.Background(), SAMLConfig{
 		RootURL: rig.daru.URL, IDPMetadataURL: rig.idp.URL + "/metadata",
 		KeyFile: filepath.Join(dir, "sp.key"), CertFile: filepath.Join(dir, "sp.crt"),
@@ -108,11 +109,10 @@ func newSAMLRigSigned(t *testing.T, autoCreate, signed bool) *samlRig {
 		// IdP needs unsigned requests. Responses are verified either way.
 		UnsignedRequests: !signed,
 		Policy:           ExternalAccountPolicy{AutoCreate: autoCreate},
-	})
+	}, st)
 	if err != nil {
 		t.Fatalf("NewSAML: %v", err)
 	}
-	st := store.New(store.Config{URL: ch.URL, Database: "daru"})
 	s := &Server{Store: st, Auth: auth.New(st), Ingest: ingest.New(st), Search: search.New(st),
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), SAML: sc, Secure: true}
 	rig.daru.Config.Handler = s.Handler()

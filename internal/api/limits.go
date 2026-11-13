@@ -135,6 +135,23 @@ func (q *userQuotas) acquireScan(createdBy string) (func(), error) {
 	}, nil
 }
 
+// checkShared applies the quotas to counts read from ClickHouse, which
+// every Daru server writes, so a user cannot exceed a quota by spreading
+// scans over several servers.
+func (q *userQuotas) checkShared(createdBy string, running, lastHour int) error {
+	if q == nil {
+		return nil
+	}
+	user := quotaUser(createdBy)
+	if q.maxConcurrent > 0 && running >= q.maxConcurrent {
+		return fmt.Errorf("%w: %d scans already running for %s (limit %d)", ErrQuota, running, user, q.maxConcurrent)
+	}
+	if q.maxPerHour > 0 && lastHour >= q.maxPerHour {
+		return fmt.Errorf("%w: %d scans started by %s in the last hour (limit %d)", ErrQuota, lastHour, user, q.maxPerHour)
+	}
+	return nil
+}
+
 // checkSchedules reports whether user may own one more scheduled scan.
 func (q *userQuotas) checkSchedules(user string, owned int) error {
 	if q == nil || q.maxSchedules <= 0 {

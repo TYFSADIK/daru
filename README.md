@@ -457,7 +457,8 @@ curl http://localhost:8088/services/collector/raw?sourcetype=syslog \
 | `DARU_SECURE_COOKIES` | | Set to `true` behind HTTPS |
 | `DARU_WEBHOOK_SECRET` | | HMAC key (16+ chars) for signing alert webhooks |
 | `DARU_METRICS_TOKEN` | | Bearer token (16+ chars) for `/metrics`; unset means loopback only |
-| `DARU_INGEST_MAX_EPS` | `50000` | Global ingest events per second, `-1` disables |
+| `DARU_INGEST_MAX_EPS` | `50000` | Ingest events per second for the deployment, `-1` disables |
+| `DARU_REPLICAS` | `1` | Daru servers sharing one ClickHouse; each enforces its share of the ingest limit |
 | `DARU_SCAN_CONCURRENT_PER_USER` | `2` | Running recon scans per user, `-1` disables |
 | `DARU_SCAN_PER_HOUR_PER_USER` | `30` | Recon scans started per user per hour, `-1` disables |
 | `DARU_SCHEDULES_PER_USER` | `20` | Scheduled scans owned per user, `-1` disables |

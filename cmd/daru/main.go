@@ -245,7 +245,8 @@ Configuration (environment variables):
   DARU_ALLOW_ROOT_UPDATE     Set to "1" to allow tool updates while running as root
   DARU_WEBHOOK_SECRET        HMAC-SHA256 key for alert webhooks (X-Daru-Signature), 16+ chars
   DARU_METRICS_TOKEN         Bearer token for /metrics; unset serves /metrics to loopback only
-  DARU_INGEST_MAX_EPS        Global ingest limit in events/second (default 50000, -1 disables)
+  DARU_INGEST_MAX_EPS        Ingest limit in events/second for the deployment (default 50000, -1 disables)
+  DARU_REPLICAS              Number of Daru servers sharing that limit (each enforces its share)
   DARU_SCAN_CONCURRENT_PER_USER  Running recon scans per user (default 2, -1 disables)
   DARU_SCAN_PER_HOUR_PER_USER    Recon scans started per user per hour (default 30, -1 disables)
   DARU_SCHEDULES_PER_USER    Scheduled scans owned per user (default 20, -1 disables)
@@ -392,6 +393,7 @@ func serve(log *slog.Logger) {
 		Secure: cfg.secure,
 
 		IngestMaxEPS:          cfg.ingestMaxEPS,
+		Replicas:              envInt("DARU_REPLICAS", log),
 		ScanConcurrentPerUser: cfg.scanConcurrent,
 		ScanPerHourPerUser:    cfg.scanPerHour,
 		SchedulesPerUser:      cfg.schedulesPerUser,
@@ -410,7 +412,7 @@ func serve(log *slog.Logger) {
 		srv.LDAP, srv.LDAPPolicy = setupLDAP(url, log)
 	}
 	if os.Getenv("DARU_SAML_ROOT_URL") != "" {
-		srv.SAML = setupSAML(ctx, log)
+		srv.SAML = setupSAML(ctx, st, log)
 	}
 
 	sched := alerts.NewScheduler(st, search.New(st), log)
@@ -511,7 +513,7 @@ func setupLDAP(url string, log *slog.Logger) (*auth.LDAPAuthenticator, api.Exter
 	return a, externalPolicy("DARU_LDAP", log)
 }
 
-func setupSAML(ctx context.Context, log *slog.Logger) *api.SAMLSettings {
+func setupSAML(ctx context.Context, st *store.Store, log *slog.Logger) *api.SAMLSettings {
 	cfg := api.SAMLConfig{
 		RootURL:          env("DARU_SAML_ROOT_URL", ""),
 		IDPMetadataURL:   env("DARU_SAML_IDP_METADATA_URL", ""),
@@ -529,7 +531,7 @@ func setupSAML(ctx context.Context, log *slog.Logger) *api.SAMLSettings {
 	deadline := time.Now().Add(time.Minute)
 	for {
 		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		sc, err := api.NewSAML(sctx, cfg)
+		sc, err := api.NewSAML(sctx, cfg, st)
 		cancel()
 		if err == nil {
 			log.Info("saml single sign on enabled", "sp_entity_id", sc.SP.EntityID)

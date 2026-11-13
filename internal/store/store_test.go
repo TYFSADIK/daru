@@ -115,3 +115,52 @@ func TestPortDiff(t *testing.T) {
 		t.Errorf("unionPorts wrong: %q", u)
 	}
 }
+
+func TestSharedStateLive(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	st := "live-" + newUUID()
+	if err := s.PutSSOState(ctx, SSOState{State: st, Kind: "oidc", Nonce: "n'1", Verifier: "v1",
+		ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if _, err := s.TakeSSOState(ctx, st, "saml"); err != ErrNotFound {
+		t.Errorf("wrong kind = %v, want ErrNotFound", err)
+	}
+	got, err := s.TakeSSOState(ctx, st, "oidc")
+	if err != nil || got.Nonce != "n'1" || got.Verifier != "v1" {
+		t.Fatalf("take = %+v %v", got, err)
+	}
+	if _, err := s.TakeSSOState(ctx, st, "oidc"); err != ErrNotFound {
+		t.Errorf("second take = %v, want ErrNotFound", err)
+	}
+	old := "old-" + newUUID()
+	_ = s.PutSSOState(ctx, SSOState{State: old, Kind: "oidc", ExpiresAt: time.Now().Add(-time.Minute)})
+	if _, err := s.TakeSSOState(ctx, old, "oidc"); err != ErrNotFound {
+		t.Errorf("expired state = %v, want ErrNotFound", err)
+	}
+	id := "saml:" + newUUID()
+	if err := s.ConsumeOnce(ctx, id, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	if err := s.ConsumeOnce(ctx, id, time.Now().Add(time.Hour)); err != ErrReplayed {
+		t.Errorf("second consume = %v, want ErrReplayed", err)
+	}
+	user := "quota-" + newUUID()[:8]
+	for i := 0; i < 2; i++ {
+		if _, err := s.CreateScan(ctx, ScanRecord{Connector: "nmap", Target: "127.0.0.1", CreatedBy: user}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done, _ := s.CreateScan(ctx, ScanRecord{Connector: "nmap", Target: "127.0.0.1", CreatedBy: "scheduler:" + user})
+	if err := s.CompleteScan(ctx, done, "completed", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	running, hour, err := s.ScanUsage(ctx, user)
+	if err != nil || running != 2 || hour != 3 {
+		t.Errorf("ScanUsage = %d running, %d last hour, %v; want 2, 3", running, hour, err)
+	}
+}

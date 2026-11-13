@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,20 @@ type fakeCH struct {
 	down    bool
 	queries []string
 	inserts int
+	// Shared state tables, as ClickHouse would hold them for every server.
+	sso       map[string][]string // state -> kind, nonce, verifier, request_id
+	used      map[string]bool
+	scanUsage [2]int // running, last hour
+}
+
+var quotedVals = regexp.MustCompile(`'((?:[^'\\]|\\.)*)'`)
+
+func allQuoted(sql string) []string {
+	var out []string
+	for _, m := range quotedVals.FindAllStringSubmatch(sql, -1) {
+		out = append(out, m[1])
+	}
+	return out
 }
 
 type fakeUser struct {
@@ -40,7 +55,8 @@ type fakeUser struct {
 }
 
 func newFakeCH() *fakeCH {
-	return &fakeCH{users: map[string]fakeUser{}, tokens: map[string]string{}, indexes: []string{"main", "web", "secret"}}
+	return &fakeCH{users: map[string]fakeUser{}, tokens: map[string]string{}, indexes: []string{"main", "web", "secret"},
+		sso: map[string][]string{}, used: map[string]bool{}}
 }
 
 func (f *fakeCH) addUser(name, role, access, token string) {
@@ -89,6 +105,30 @@ func (f *fakeCH) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case strings.HasPrefix(sql, "INSERT INTO sso_states"):
+		v := allQuoted(sql) // state, kind, nonce, verifier, request_id, time
+		f.sso[v[0]] = v[1:5]
+	case strings.HasPrefix(sql, "DELETE FROM sso_states"):
+		delete(f.sso, allQuoted(sql)[0])
+	case strings.Contains(sql, "FROM sso_states"):
+		v := allQuoted(sql) // state, kind
+		row, ok := f.sso[v[0]]
+		if !ok || row[0] != v[1] {
+			fmt.Fprint(w, compact([]string{"nonce"}, nil))
+			return
+		}
+		fmt.Fprint(w, compact([]string{"nonce", "verifier", "request_id", "expires"},
+			[][]any{{row[1], row[2], row[3], "2099-01-01 00:00:00.000"}}))
+	case strings.Contains(sql, "FROM used_ids"):
+		n := "0"
+		if f.used[allQuoted(sql)[0]] {
+			n = "1"
+		}
+		fmt.Fprint(w, compact([]string{"count()"}, [][]any{{n}}))
+	case strings.HasPrefix(sql, "INSERT INTO used_ids"):
+		f.used[allQuoted(sql)[0]] = true
+	case strings.Contains(sql, "countIf(status = 'running'"):
+		fmt.Fprint(w, compact([]string{"running", "hour"}, [][]any{{fmt.Sprint(f.scanUsage[0]), fmt.Sprint(f.scanUsage[1])}}))
 	case strings.Contains(sql, "FROM sessions"):
 		name, ok := f.tokens[quotedArg(sql, "token_hash =")]
 		if !ok {
@@ -431,5 +471,75 @@ func TestPasswordChangeKeepsIndexAccess(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("SetPassword did not write the user row")
+	}
+}
+
+// Two Daru servers sharing one ClickHouse: a sign in started on one
+// finishes on the other, and is still single use.
+func TestSSOStateSharedAcrossServers(t *testing.T) {
+	f := newFakeCH()
+	ch := httptest.NewServer(f)
+	defer ch.Close()
+	a := store.New(store.Config{URL: ch.URL, Database: "daru"})
+	b := store.New(store.Config{URL: ch.URL, Database: "daru"})
+	ctx := context.Background()
+	if err := a.PutSSOState(ctx, store.SSOState{State: "st1", Kind: "oidc", Nonce: "n1", Verifier: "v1",
+		ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.TakeSSOState(ctx, "st1", "oidc")
+	if err != nil || got.Nonce != "n1" || got.Verifier != "v1" {
+		t.Fatalf("server b could not take server a's state: %+v %v", got, err)
+	}
+	if _, err := a.TakeSSOState(ctx, "st1", "oidc"); err == nil {
+		t.Error("state was usable twice")
+	}
+	if err := a.PutSSOState(ctx, store.SSOState{State: "st2", Kind: "saml", RequestID: "id-1",
+		ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.TakeSSOState(ctx, "st2", "oidc"); err == nil {
+		t.Error("a saml state was accepted as oidc")
+	}
+	// Replay records are shared too.
+	if err := a.ConsumeOnce(ctx, "saml:abc", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ConsumeOnce(ctx, "saml:abc", time.Now().Add(time.Hour)); err != store.ErrReplayed {
+		t.Errorf("server b accepted an assertion server a already used: %v", err)
+	}
+}
+
+// Scan quotas count scans every server recorded.
+func TestSharedScanQuota(t *testing.T) {
+	f := newFakeCH()
+	ch := httptest.NewServer(f)
+	defer ch.Close()
+	s := &Server{Store: store.New(store.Config{URL: ch.URL, Database: "daru"}),
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), ScanConcurrentPerUser: 2, ScanPerHourPerUser: 5}
+	s.initLimits()
+	f.scanUsage = [2]int{1, 1}
+	if err := s.sharedScanQuota("alice"); err != nil {
+		t.Errorf("under quota refused: %v", err)
+	}
+	f.scanUsage = [2]int{2, 2} // two running on other servers
+	if err := s.sharedScanQuota("scheduler:alice"); err == nil {
+		t.Error("running scans on other servers were not counted")
+	}
+	f.scanUsage = [2]int{0, 5}
+	if err := s.sharedScanQuota("alice"); err == nil {
+		t.Error("hourly scans on other servers were not counted")
+	}
+	f.down = true
+	if err := s.sharedScanQuota("alice"); err == nil {
+		t.Error("quota must fail closed when usage cannot be read")
+	}
+}
+
+func TestReplicasSplitIngestLimit(t *testing.T) {
+	s := &Server{IngestMaxEPS: 30000, Replicas: 3}
+	s.initLimits()
+	if s.ingestLimit.rate != 10000 {
+		t.Errorf("per server rate = %v, want 10000", s.ingestLimit.rate)
 	}
 }

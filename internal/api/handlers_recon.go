@@ -45,6 +45,21 @@ func (s *Server) handleReconScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"scan_id": scanID, "status": "running"})
 }
 
+// sharedScanQuota checks the per user quotas against ClickHouse. If the
+// counts cannot be read the scan is refused: failing open would let a
+// ClickHouse hiccup lift every quota.
+func (s *Server) sharedScanQuota(createdBy string) error {
+	user := quotaUser(createdBy)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	running, lastHour, err := s.Store.ScanUsage(ctx, user)
+	if err != nil {
+		s.Log.Warn("could not read scan usage for quota", "user", user, "err", err)
+		return fmt.Errorf("%w: could not check scan quota", ErrQuota)
+	}
+	return s.quotas.checkShared(user, running, lastHour)
+}
+
 // acquireReconSem waits briefly for a scan slot instead of blocking the
 // HTTP handler indefinitely. A full semaphore returns recon.ErrBusy, which
 // callers map to HTTP 429.
@@ -79,7 +94,13 @@ func findingFields(f recon.Finding) map[string]string {
 func (s *Server) launchReconScan(connector *recon.Connector, args []string, req recon.Request, user string) (string, error) {
 	s.initLimits()
 	// Quota and slot come first, so a refused scan never leaves a
-	// "running" scan record behind.
+	// "running" scan record behind. The shared check counts scans every
+	// Daru server recorded; the in-memory one closes the gap between the
+	// check and this server's own scan record.
+	if err := s.sharedScanQuota(user); err != nil {
+		s.metrics.quotaRejected.Add(1)
+		return "", err
+	}
 	release, err := s.quotas.acquireScan(user)
 	if err != nil {
 		s.metrics.quotaRejected.Add(1)
@@ -204,7 +225,11 @@ func (s *Server) handleReconPcap(w http.ResponseWriter, r *http.Request) {
 	req.Target = target
 	user := sessionFrom(r.Context()).Username
 	label := hdr.Filename
-	release, err := s.quotas.acquireScan(user)
+	err = s.sharedScanQuota(user)
+	release := func() {}
+	if err == nil {
+		release, err = s.quotas.acquireScan(user)
+	}
 	if err != nil {
 		os.Remove(path)
 		s.metrics.quotaRejected.Add(1)

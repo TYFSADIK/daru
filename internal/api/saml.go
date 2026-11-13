@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/crewjam/saml"
@@ -24,6 +23,7 @@ import (
 	dsig "github.com/russellhaering/goxmldsig"
 
 	"github.com/TYFSADIK/daru/internal/auth"
+	"github.com/TYFSADIK/daru/internal/store"
 )
 
 // SAML 2.0 single sign on, as a service provider (crewjam/saml). Daru sends
@@ -58,19 +58,36 @@ type SAMLConfig struct {
 
 // SAMLSettings is a ready service provider.
 type SAMLSettings struct {
-	SP     *saml.ServiceProvider
-	cfg    SAMLConfig
-	mu     sync.Mutex
-	states map[string]samlPending
+	SP  *saml.ServiceProvider
+	cfg SAMLConfig
 }
 
-type samlPending struct {
-	requestID string
-	expires   time.Time
+// sharedReplayCache rejects an assertion any Daru server has accepted. The
+// in-memory cache answers repeats on this server at once; ClickHouse makes
+// the record visible to every other server.
+type sharedReplayCache struct {
+	local *samlsp.MemoryReplayCache
+	st    *store.Store
 }
 
-// NewSAML builds the service provider from configuration.
-func NewSAML(ctx context.Context, cfg SAMLConfig) (*SAMLSettings, error) {
+func (c *sharedReplayCache) Consume(id string, expiresAt time.Time) error {
+	if err := c.local.Consume(id, expiresAt); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.st.ConsumeOnce(ctx, "saml:"+id, expiresAt); err != nil {
+		if errors.Is(err, store.ErrReplayed) {
+			return saml.ErrAssertionReplayed
+		}
+		return err // any other error refuses the assertion
+	}
+	return nil
+}
+
+// NewSAML builds the service provider from configuration. st holds the
+// replay records shared by every Daru server.
+func NewSAML(ctx context.Context, cfg SAMLConfig, st *store.Store) (*SAMLSettings, error) {
 	root, err := url.Parse(strings.TrimRight(cfg.RootURL, "/"))
 	if err != nil || root.Host == "" {
 		return nil, fmt.Errorf("saml: root url is required, e.g. https://daru.example.com")
@@ -146,7 +163,7 @@ func NewSAML(ctx context.Context, cfg SAMLConfig) (*SAMLSettings, error) {
 		SignatureMethod:      method,
 		AllowIDPInitiated:    false,
 		RejectSHA1Signatures: true,
-		ReplayCache:          samlsp.NewMemoryReplayCache(100000),
+		ReplayCache:          &sharedReplayCache{local: samlsp.NewMemoryReplayCache(100000), st: st},
 	}
 	if cfg.UnsignedRequests {
 		sp.SignatureMethod = ""
@@ -154,7 +171,7 @@ func NewSAML(ctx context.Context, cfg SAMLConfig) (*SAMLSettings, error) {
 	if sp.GetSSOBindingLocation(saml.HTTPRedirectBinding) == "" {
 		return nil, fmt.Errorf("saml: IdP metadata has no HTTP-Redirect single sign on endpoint")
 	}
-	return &SAMLSettings{SP: sp, cfg: cfg, states: map[string]samlPending{}}, nil
+	return &SAMLSettings{SP: sp, cfg: cfg}, nil
 }
 
 func (s *Server) handleSAMLConfig(w http.ResponseWriter, r *http.Request) {
@@ -198,20 +215,12 @@ func (s *Server) handleSAMLLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start sign in")
 		return
 	}
-	now := time.Now()
-	sc.mu.Lock()
-	for k, v := range sc.states {
-		if now.After(v.expires) {
-			delete(sc.states, k)
-		}
-	}
-	if len(sc.states) > 10000 {
-		sc.mu.Unlock()
-		writeError(w, http.StatusTooManyRequests, "too many sign in attempts in progress")
+	if err := s.Store.PutSSOState(r.Context(), store.SSOState{State: state, Kind: "saml", RequestID: req.ID,
+		ExpiresAt: time.Now().Add(10 * time.Minute)}); err != nil {
+		s.Log.Warn("could not store saml state", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not start sign in")
 		return
 	}
-	sc.states[state] = samlPending{requestID: req.ID, expires: now.Add(10 * time.Minute)}
-	sc.mu.Unlock()
 	// The IdP returns with a cross site POST, which only carries a
 	// SameSite=None cookie, and SameSite=None requires Secure.
 	http.SetCookie(w, &http.Cookie{
@@ -247,15 +256,12 @@ func (s *Server) handleSAMLACS(w http.ResponseWriter, r *http.Request) {
 		s.samlFail(w, r, "", "relay state missing or not bound to this browser")
 		return
 	}
-	sc.mu.Lock()
-	pend, ok := sc.states[state]
-	delete(sc.states, state)
-	sc.mu.Unlock()
-	if !ok || time.Now().After(pend.expires) {
-		s.samlFail(w, r, "", "relay state unknown or expired")
+	pend, err := s.Store.TakeSSOState(r.Context(), state, "saml")
+	if err != nil {
+		s.samlFail(w, r, "", "relay state unknown, used, or expired")
 		return
 	}
-	assertion, err := sc.SP.ParseResponse(r, []string{pend.requestID})
+	assertion, err := sc.SP.ParseResponse(r, []string{pend.RequestID})
 	if err != nil {
 		reason := err.Error()
 		var ie *saml.InvalidResponseError

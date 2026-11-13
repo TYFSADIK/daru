@@ -225,12 +225,32 @@ v3.4.15 and `github.com/crewjam/saml` v0.6.3.
   twice by this session's permission settings (it downloads the tool); run
   `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (CI already does).
 
+## Follow up, 2026-11-13 (3): several Daru servers on one ClickHouse
+
+- OIDC and SAML sign in state moved to a `sso_states` table, so a sign in
+  started on one server can finish on another, and stays single use.
+- SAML replay protection: an in-memory cache in front of a shared
+  `used_ids` table, so an assertion accepted by any server is refused by all.
+- Scan quotas are counted from the `scans` table every server writes
+  (running in the last 30 minutes, started in the last hour, scheduled scans
+  charged to their creator). If the counts cannot be read the scan is
+  refused, so an outage cannot lift the quotas.
+- Ingest limit: `DARU_INGEST_MAX_EPS` is for the whole deployment; with
+  `DARU_REPLICAS=n` each server enforces its 1/n share.
+- Verified: unit tests for two servers sharing state, and
+  `TestSharedStateLive` against ClickHouse 25.8 (now also in CI).
+- Trade-off, by design: ClickHouse has no transactions, so "take" and
+  "consume" are a read then a write. Two servers racing on the very same
+  state within milliseconds could both succeed. Each state is also bound to
+  one browser cookie, and each server checks its own memory first. The
+  index ACL cache stays per server with a 30 second lifetime, so an ACL
+  change made on one server reaches the others within 30 seconds.
+
 ## Remaining honest limits
 
-- OIDC and SAML sign in state, the SAML replay cache, the ACL cache, quotas,
-  and the ingest bucket are in memory per
-  process. Running several Daru replicas behind a load balancer needs sticky
-  sessions for SSO sign in, and limits apply per replica.
+- govulncheck over the new modules has not been run in this session (the
+  session's permissions blocked downloading it). CI runs it on every push;
+  locally: `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`.
 - install.sh Go SHA-256 pins are for Go 1.27.3 (re-verified against the
   go.dev download in this pass). If Go releases a patch, update the pins in
   install.sh and install.ps1 together.

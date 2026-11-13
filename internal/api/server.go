@@ -35,7 +35,11 @@ type Server struct {
 
 	// Limits. Zero values take the Default* constants in limits.go; a
 	// negative value disables that limit.
-	IngestMaxEPS          int // global ingest events per second
+	IngestMaxEPS int // ingest events per second for the whole deployment
+	// Replicas is how many Daru servers share the ingest limit. Each
+	// server enforces IngestMaxEPS / Replicas, so together they stay
+	// within the deployment wide limit. 0 or 1 means a single server.
+	Replicas              int
 	ScanConcurrentPerUser int // running scans per user
 	ScanPerHourPerUser    int // scans started per user per hour
 	SchedulesPerUser      int // scheduled scans owned per user
@@ -64,7 +68,6 @@ type Server struct {
 	quotas      *userQuotas
 	metrics     *metrics
 	acl         *indexACLCache
-	oidc        *oidcState
 }
 
 // limitOr resolves a configured limit: 0 means the default, negative
@@ -87,7 +90,11 @@ func (s *Server) initLimits() {
 		if s.reconSem == nil {
 			s.reconSem = make(chan struct{}, 4)
 		}
-		s.ingestLimit = newIngestLimiter(limitOr(s.IngestMaxEPS, DefaultIngestMaxEPS))
+		eps := limitOr(s.IngestMaxEPS, DefaultIngestMaxEPS)
+		if s.Replicas > 1 && eps > 0 {
+			eps = (eps + s.Replicas - 1) / s.Replicas
+		}
+		s.ingestLimit = newIngestLimiter(eps)
 		s.quotas = newUserQuotas(
 			limitOr(s.ScanConcurrentPerUser, DefaultScanConcurrentPerUser),
 			limitOr(s.ScanPerHourPerUser, DefaultScanPerHourPerUser),
@@ -95,7 +102,6 @@ func (s *Server) initLimits() {
 		)
 		s.metrics = newMetrics()
 		s.acl = newIndexACLCache()
-		s.oidc = newOIDCState()
 	})
 }
 

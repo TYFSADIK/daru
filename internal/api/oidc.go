@@ -5,16 +5,16 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/TYFSADIK/daru/internal/auth"
+	"github.com/TYFSADIK/daru/internal/store"
 )
 
 // OIDC sign in. GET /api/oidc/login starts the authorization code flow and
-// GET /api/oidc/callback finishes it. The state value is kept server side
-// with the nonce and PKCE verifier, and is also bound to the browser by an
-// HttpOnly cookie, so a callback URL replayed in another browser (login
+// GET /api/oidc/callback finishes it. The state value is kept in ClickHouse
+// (shared by every Daru server) with the nonce and PKCE verifier, and is
+// also bound to the browser by an HttpOnly cookie, so a callback URL replayed in another browser (login
 // CSRF) is refused.
 
 const oidcStateCookie = "daru_oidc_state"
@@ -34,16 +34,6 @@ type OIDCSettings struct {
 
 func (o OIDCSettings) policy() ExternalAccountPolicy {
 	return ExternalAccountPolicy{AutoCreate: o.AutoCreate, DefaultRole: o.DefaultRole, DefaultIndexAccess: o.DefaultIndexAccess}
-}
-
-type oidcPending struct {
-	nonce, verifier string
-	expires         time.Time
-}
-
-type oidcState struct {
-	mu      sync.Mutex
-	pending map[string]oidcPending
 }
 
 func randomString(n int) (string, error) {
@@ -71,20 +61,13 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start sign in")
 		return
 	}
-	s.oidc.mu.Lock()
-	now := time.Now()
-	for k, v := range s.oidc.pending {
-		if now.After(v.expires) {
-			delete(s.oidc.pending, k)
-		}
-	}
-	if len(s.oidc.pending) > 10000 {
-		s.oidc.mu.Unlock()
-		writeError(w, http.StatusTooManyRequests, "too many sign in attempts in progress")
+	// Stored in ClickHouse, so the callback may reach any Daru server.
+	if err := s.Store.PutSSOState(r.Context(), store.SSOState{State: state, Kind: "oidc", Nonce: nonce,
+		Verifier: verifier, ExpiresAt: time.Now().Add(10 * time.Minute)}); err != nil {
+		s.Log.Warn("could not store oidc state", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not start sign in")
 		return
 	}
-	s.oidc.pending[state] = oidcPending{nonce: nonce, verifier: verifier, expires: now.Add(10 * time.Minute)}
-	s.oidc.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name: oidcStateCookie, Value: state, Path: "/api/oidc/", MaxAge: 600,
 		HttpOnly: true, Secure: s.Secure, SameSite: http.SameSiteLaxMode,
@@ -121,15 +104,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		s.oidcFail(w, r, "", "state missing or not bound to this browser")
 		return
 	}
-	s.oidc.mu.Lock()
-	pend, ok := s.oidc.pending[state]
-	delete(s.oidc.pending, state)
-	s.oidc.mu.Unlock()
-	if !ok || time.Now().After(pend.expires) {
-		s.oidcFail(w, r, "", "state unknown or expired")
+	pend, err := s.Store.TakeSSOState(r.Context(), state, "oidc")
+	if err != nil {
+		s.oidcFail(w, r, "", "state unknown, used, or expired")
 		return
 	}
-	claims, err := p.Exchange(r.Context(), q.Get("code"), pend.verifier, pend.nonce)
+	claims, err := p.Exchange(r.Context(), q.Get("code"), pend.Verifier, pend.Nonce)
 	if err != nil {
 		s.oidcFail(w, r, "", err.Error())
 		return
@@ -151,6 +131,3 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "login.success", username, "method", "oidc")
 	http.Redirect(w, r, "/#/search", http.StatusFound)
 }
-
-// newOIDCState is split out so tests can build a Server without Handler.
-func newOIDCState() *oidcState { return &oidcState{pending: map[string]oidcPending{}} }

@@ -72,6 +72,25 @@ var schemaAlterations = []string{
 }
 
 var schemaStatements = []string{
+	// sso_states holds pending OIDC and SAML sign ins, so the callback can
+	// land on any Daru server. Rows expire after their deadline.
+	`CREATE TABLE IF NOT EXISTS sso_states (
+		state       String,
+		kind        LowCardinality(String),
+		nonce       String DEFAULT '',
+		verifier    String DEFAULT '',
+		request_id  String DEFAULT '',
+		expires_at  DateTime64(3, 'UTC')
+	) ENGINE = MergeTree ORDER BY state
+	TTL toDateTime(expires_at) + INTERVAL 1 DAY`,
+
+	// used_ids records single use IDs (SAML assertions) across servers.
+	`CREATE TABLE IF NOT EXISTS used_ids (
+		id          String,
+		expires_at  DateTime64(3, 'UTC')
+	) ENGINE = MergeTree ORDER BY id
+	TTL toDateTime(expires_at) + INTERVAL 1 DAY`,
+
 	// events is the main log store. _time is the sort key and the partition is
 	// by day so retention can drop whole partitions cheaply. Per index
 	// retention is enforced by the RunRetention sweep; the table TTL is only
