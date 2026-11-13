@@ -357,3 +357,58 @@ func quoteTime(s string) string {
 	}
 	return fmt.Sprintf("toDateTime64(%s, 3, 'UTC')", quote(s))
 }
+
+// NotableActivity is one entry in an incident's timeline.
+type NotableActivity struct {
+	Time   string `json:"time"`
+	Author string `json:"author"`
+	Kind   string `json:"kind"` // note, status, owner
+	Text   string `json:"text"`
+}
+
+// AddNotableActivity appends to an incident's timeline.
+func (s *Store) AddNotableActivity(ctx context.Context, id, author, kind, text string) error {
+	return s.exec(ctx, fmt.Sprintf("INSERT INTO notable_activity (notable_id, author, kind, text) VALUES (%s, %s, %s, %s)",
+		quote(id), quote(author), quote(kind), quote(text)))
+}
+
+// ListNotableActivity returns an incident's timeline, oldest first.
+func (s *Store) ListNotableActivity(ctx context.Context, id string) ([]NotableActivity, error) {
+	res, err := s.Query(ctx, fmt.Sprintf("SELECT toString(time), author, kind, text FROM notable_activity WHERE notable_id = %s ORDER BY time LIMIT 1000", quote(id)))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]NotableActivity, 0, len(res.Rows))
+	for _, r := range res.Rows {
+		if len(r) < 4 {
+			continue
+		}
+		out = append(out, NotableActivity{Time: asString(r[0]), Author: asString(r[1]), Kind: asString(r[2]), Text: asString(r[3])})
+	}
+	return out, nil
+}
+
+// GetNotable returns one incident, or an error if there is none.
+func (s *Store) GetNotable(ctx context.Context, id string) (*NotableEvent, error) {
+	res, err := s.Query(ctx, fmt.Sprintf(`SELECT toString(id), toString(created_at), rule_name, severity,
+		status, owner, mitre, entity, detail, raw FROM notable_events FINAL WHERE id = %s LIMIT 1`, quote(id)))
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Rows) == 0 || len(res.Rows[0]) < 9 {
+		return nil, fmt.Errorf("notable event not found")
+	}
+	r := res.Rows[0]
+	return &NotableEvent{ID: asString(r[0]), CreatedAt: asString(r[1]), RuleName: asString(r[2]),
+		Severity: asString(r[3]), Status: asString(r[4]), Owner: asString(r[5]),
+		Mitre: asString(r[6]), Entity: asString(r[7]), Detail: asString(r[8]), Raw: rowString(r, 9)}, nil
+}
+
+// SetNotableOwner assigns an incident, keeping its status.
+func (s *Store) SetNotableOwner(ctx context.Context, id, owner string) error {
+	n, err := s.GetNotable(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.SetNotableStatus(ctx, id, n.Status, owner)
+}

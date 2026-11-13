@@ -286,6 +286,16 @@ var schemaStatements = []string{
 	ORDER BY (time, event)
 	TTL toDateTime(time) + INTERVAL 730 DAY`,
 
+	// notable_activity is each incident's timeline: analyst notes and
+	// status and owner changes, oldest first.
+	`CREATE TABLE IF NOT EXISTS notable_activity (
+		notable_id String,
+		time       DateTime64(3, 'UTC') DEFAULT now64(3),
+		author     String,
+		kind       LowCardinality(String),
+		text       String
+	) ENGINE = MergeTree ORDER BY (notable_id, time)`,
+
 	// notable_events is the security incident queue (ES equivalent).
 	`CREATE TABLE IF NOT EXISTS notable_events (
 		id          UUID DEFAULT generateUUIDv4(),

@@ -831,11 +831,13 @@ async function renderSecurity(view) {
     if (!items.length) { wrap.appendChild(el("div", { class: "empty" }, "No notable events. Create a security alert to populate this queue.")); return; }
     const t = el("table", { class: "grid" }, el("tr", {}, ...["Time", "Rule", "Severity", "Status", "Entity", "MITRE", ""].map((h) => el("th", {}, h))));
     for (const n of items) {
-      t.appendChild(el("tr", {},
+      const tr = el("tr", { style: "cursor:pointer", title: "Open incident" },
         timeTd(n.created_at), el("td", {}, n.rule_name),
         el("td", {}, el("span", { class: "badge sev-" + n.severity }, n.severity)),
         el("td", {}, n.status), el("td", {}, n.entity || "-"), el("td", {}, n.mitre || "-"),
-        el("td", {}, roleAtLeast(ME.role, "power") ? statusSelect(n, view) : null)));
+        el("td", {}, roleAtLeast(ME.role, "power") ? statusSelect(n, view) : null));
+      tr.addEventListener("click", (e) => { if (!["SELECT", "OPTION", "BUTTON", "A"].includes(e.target.tagName)) openIncident(n.id, view); });
+      t.appendChild(tr);
     }
     wrap.appendChild(t);
   } catch (ex) { wrap.innerHTML = ""; wrap.appendChild(el("div", { class: "empty" }, ex.message)); }
@@ -891,6 +893,70 @@ function renderMitrePanel(items) {
     card.appendChild(row);
   }
   return card;
+}
+
+// openIncident shows one notable event with its timeline, notes, owner, and
+// status. Power users and admins can act; others see it read-only.
+async function openIncident(id, view) {
+  const overlay = el("div", { class: "modal-overlay", role: "dialog", "aria-modal": "true" });
+  const box = el("div", { class: "modal modal-wide" }, el("div", { class: "spinner" }, "Loading incident..."));
+  overlay.appendChild(box);
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); renderSecurity((view.innerHTML = "", view)); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(overlay);
+  const canAct = roleAtLeast(ME.role, "power");
+  async function draw() {
+    let r;
+    try { r = await API.get("/api/notable/" + encodeURIComponent(id)); }
+    catch (ex) { box.innerHTML = ""; box.appendChild(el("div", { class: "empty" }, ex.message)); return; }
+    const n = r.notable, act = r.activity || [];
+    box.innerHTML = "";
+    box.appendChild(el("div", { style: "display:flex;justify-content:space-between;gap:12px;align-items:flex-start" },
+      el("div", {}, el("h3", {}, n.rule_name),
+        el("div", { class: "modal-sub" }, el("span", { class: "badge sev-" + n.severity }, n.severity), "  opened " + timeAgo(n.created_at) + " · " + fmtTime(n.created_at))),
+      el("button", { class: "btn-ghost btn-sm", onclick: close, "aria-label": "Close" }, "Close")));
+    const kv = el("dl", { class: "kv", style: "margin:4px 0 14px" });
+    for (const [k, v] of [["Status", n.status], ["Owner", n.owner || "unassigned"], ["Entity", n.entity || "-"], ["MITRE", n.mitre || "-"], ["Detail", n.detail || "-"]]) {
+      kv.appendChild(el("dt", {}, k)); kv.appendChild(el("dd", { style: "white-space:pre-wrap" }, v));
+    }
+    box.appendChild(kv);
+    if (n.raw) box.appendChild(el("details", { style: "margin-bottom:14px" }, el("summary", { style: "cursor:pointer;color:var(--muted)" }, "Raw event"),
+      el("pre", { class: "event-raw", style: "background:var(--bg-2);padding:10px;border-radius:6px;max-height:200px;overflow:auto" }, n.raw)));
+    if (canAct) {
+      const actions = el("div", { class: "toolbar" });
+      const st = el("select", { "aria-label": "Status" }, ...["new", "in_progress", "closed"].map((x) => el("option", { value: x, ...(x === n.status ? { selected: "" } : {}) }, x)));
+      st.addEventListener("change", async () => { try { await API.post("/api/notable/" + id + "/status", { status: st.value }); toast("Status updated"); draw(); } catch (ex) { toast(ex.message, "error"); } });
+      actions.appendChild(el("label", { style: "display:flex;gap:6px;align-items:center" }, "Status", st));
+      if (n.owner !== ME.username) actions.appendChild(el("button", { class: "btn-ghost", onclick: async () => {
+        try { await API.post("/api/notable/" + id + "/assign", { owner: ME.username }); toast("Assigned to you"); draw(); } catch (ex) { toast(ex.message, "error"); }
+      } }, "Assign to me"));
+      actions.appendChild(el("button", { class: "btn-ghost", onclick: async () => {
+        const v = await openModal("Assign incident", "Enter the username to assign this incident to, or leave it empty to unassign.", [{ name: "owner", label: "Username", type: "text", value: n.owner || "" }], "Assign");
+        if (!v) return;
+        try { await API.post("/api/notable/" + id + "/assign", { owner: v.owner }); toast(v.owner ? "Assigned to " + v.owner : "Unassigned"); draw(); } catch (ex) { toast(ex.message, "error"); }
+      } }, "Assign to..."));
+      box.appendChild(actions);
+    }
+    box.appendChild(el("h4", { style: "margin:6px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)" }, "Timeline"));
+    const tl = el("ol", { class: "timeline" });
+    tl.appendChild(el("li", { class: "tl-system" }, el("div", { class: "tl-meta" }, fmtTime(n.created_at) + " · Daru"), el("div", {}, "Incident opened by rule " + n.rule_name)));
+    for (const a of act) {
+      tl.appendChild(el("li", { class: a.kind === "note" ? "tl-note" : "tl-system" },
+        el("div", { class: "tl-meta" }, fmtTime(a.time) + " · " + a.author), el("div", { style: "white-space:pre-wrap" }, a.text)));
+    }
+    box.appendChild(tl);
+    if (canAct) {
+      const note = el("textarea", { rows: "3", placeholder: "Add a note: what you checked, what you found, next steps", "aria-label": "Note", style: "width:100%" });
+      box.appendChild(note);
+      box.appendChild(el("div", { class: "modal-actions" }, el("button", { class: "btn-primary", onclick: async () => {
+        if (!note.value.trim()) return;
+        try { await API.post("/api/notable/" + id + "/notes", { text: note.value }); toast("Note added"); draw(); } catch (ex) { toast(ex.message, "error"); }
+      } }, "Add note")));
+    }
+  }
+  draw();
 }
 
 function statusSelect(n, view) {

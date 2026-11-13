@@ -176,6 +176,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/alerts/history", s.authed(auth.RoleUser, s.handleAlertHistory))
 	mux.HandleFunc("GET /api/notable", s.authed(auth.RoleUser, s.handleListNotable))
 	mux.HandleFunc("POST /api/notable/{id}/status", s.authed(auth.RolePower, s.handleNotableStatus))
+	mux.HandleFunc("GET /api/notable/{id}", s.authed(auth.RoleUser, s.handleNotableDetail))
+	mux.HandleFunc("POST /api/notable/{id}/notes", s.authed(auth.RolePower, s.handleNotableNote))
+	mux.HandleFunc("POST /api/notable/{id}/assign", s.authed(auth.RolePower, s.handleNotableAssign))
 
 	// Recon and scanning.
 	mux.HandleFunc("GET /api/recon/connectors", s.authed(auth.RoleUser, s.handleReconConnectors))

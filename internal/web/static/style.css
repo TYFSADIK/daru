@@ -299,3 +299,12 @@ table.grid tbody tr:hover td { background: var(--panel-2); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13.5px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-family: var(--mono); color: var(--text-strong); }
+
+/* Incident detail */
+.modal.modal-wide { width: min(780px, calc(100vw - 32px)); }
+.timeline { list-style: none; margin: 0 0 14px; padding: 0 0 0 14px; border-left: 2px solid var(--border); }
+.timeline li { position: relative; margin: 0 0 12px; padding-left: 10px; font-size: 13.5px; }
+.timeline li::before { content: ""; position: absolute; left: -21px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+.timeline li.tl-note::before { background: var(--accent); }
+.timeline .tl-meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.timeline li.tl-note > div:last-child { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 8px 10px; }

@@ -203,8 +203,10 @@ your `PATH`, and run `daru serve`.
   (`stats count by host`) the condition is checked against the total across
   every group. Webhooks are signed with HMAC-SHA256 when
   `DARU_WEBHOOK_SECRET` is set (see [Webhook signatures](#webhook-signatures)).
-- **Security**: a notable-event queue for incident triage, with status and
-  owner.
+- **Security**: a notable-event queue for incident triage. Click an
+  incident to see its details and raw event, assign it, change its status,
+  and add analyst notes; every note, status change, and assignment lands on
+  the incident's timeline and in the audit trail.
 - **Accounts**: built-in users with Argon2id password hashing, roles (admin,
   power, user), TOTP second factor, and revocable sessions. No external
   identity provider needed, and optional **LDAP / Active Directory**,

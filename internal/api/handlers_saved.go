@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/TYFSADIK/daru/internal/alerts"
 	"github.com/TYFSADIK/daru/internal/query"
@@ -188,11 +189,99 @@ func (s *Server) handleNotableStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
+	if !validNotableStatus[req.Status] {
+		writeError(w, http.StatusBadRequest, "status must be new, in_progress, or closed")
+		return
+	}
 	owner := sessionFrom(r.Context()).Username
 	if err := s.Store.SetNotableStatus(r.Context(), r.PathValue("id"), req.Status, owner); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.notableActivity(r, r.PathValue("id"), owner, "status", "Status set to "+req.Status)
 	s.audit(r, "notable.status_change", owner, "id", r.PathValue("id"), "status", req.Status)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+var validNotableStatus = map[string]bool{"new": true, "in_progress": true, "closed": true}
+
+// notableActivity records a timeline entry; a failure is logged, not fatal,
+// because the change itself already succeeded and is in the audit trail.
+func (s *Server) notableActivity(r *http.Request, id, author, kind, text string) {
+	if err := s.Store.AddNotableActivity(r.Context(), id, author, kind, text); err != nil {
+		s.Log.Warn("could not record incident activity", "id", id, "err", err)
+	}
+}
+
+// handleNotableDetail returns one incident and its timeline.
+func (s *Server) handleNotableDetail(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Store.GetNotable(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "notable event not found")
+		return
+	}
+	act, err := s.Store.ListNotableActivity(r.Context(), n.ID)
+	if err != nil {
+		s.Log.Warn("could not read incident activity", "err", err)
+		act = nil
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notable": n, "activity": act})
+}
+
+// handleNotableNote adds an analyst note to an incident.
+func (s *Server) handleNotableNote(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := readJSON(r, &req, 64*1024); err != nil || strings.TrimSpace(req.Text) == "" {
+		writeError(w, http.StatusBadRequest, "a note needs text")
+		return
+	}
+	if len(req.Text) > 10000 {
+		writeError(w, http.StatusBadRequest, "a note is at most 10,000 characters")
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := s.Store.GetNotable(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "notable event not found")
+		return
+	}
+	user := sessionFrom(r.Context()).Username
+	if err := s.Store.AddNotableActivity(r.Context(), id, user, "note", strings.TrimSpace(req.Text)); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save the note")
+		return
+	}
+	s.audit(r, "notable.note", user, "id", id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "added"})
+}
+
+// handleNotableAssign sets an incident's owner to an existing user.
+func (s *Server) handleNotableAssign(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Owner string `json:"owner"`
+	}
+	if err := readJSON(r, &req, 16*1024); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	req.Owner = strings.TrimSpace(req.Owner)
+	if req.Owner != "" {
+		if u, err := s.Auth.GetUser(r.Context(), req.Owner); err != nil || u == nil {
+			writeError(w, http.StatusBadRequest, "no such user")
+			return
+		}
+	}
+	id := r.PathValue("id")
+	if err := s.Store.SetNotableOwner(r.Context(), id, req.Owner); err != nil {
+		writeError(w, http.StatusNotFound, "notable event not found")
+		return
+	}
+	user := sessionFrom(r.Context()).Username
+	text := "Assigned to " + req.Owner
+	if req.Owner == "" {
+		text = "Unassigned"
+	}
+	s.notableActivity(r, id, user, "owner", text)
+	s.audit(r, "notable.assign", user, "id", id, "owner", req.Owner)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
